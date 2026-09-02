@@ -160,6 +160,10 @@ public class PurchaseRequest {
 		this.neededDate = neededDate;
 	}
 
+	public void requireApprovedForOrder() {
+		requireStatus(PurchaseRequestStatus.APPROVED, "발주로 전환");
+	}
+
 	public void submit(LocalDateTime submittedAt) {
 		requireStatus(PurchaseRequestStatus.DRAFT, "제출");
 		if (lines.isEmpty()) {

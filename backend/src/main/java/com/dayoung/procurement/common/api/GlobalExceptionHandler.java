@@ -3,10 +3,13 @@ package com.dayoung.procurement.common.api;
 import com.dayoung.procurement.purchase.exception.InactivePurchaseUserException;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateException;
 import com.dayoung.procurement.purchase.exception.PurchaseItemNotFoundException;
+import com.dayoung.procurement.purchase.exception.PurchaseOrderAlreadyExistsException;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestAccessDeniedException;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestLineNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseRoleRequiredException;
+import com.dayoung.procurement.purchase.exception.PurchaseVendorNotFoundException;
+import com.dayoung.procurement.purchase.exception.PurchaseWarehouseNotFoundException;
 import com.dayoung.procurement.purchase.exception.SelfApprovalNotAllowedException;
 import jakarta.validation.ConstraintViolationException;
 import java.util.List;
@@ -35,6 +38,25 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(PurchaseItemNotFoundException.class)
 	public ResponseEntity<ApiResponse<Void>> handlePurchaseItemNotFound(PurchaseItemNotFoundException exception) {
 		return error(HttpStatus.NOT_FOUND, "PURCHASE_ITEM_NOT_FOUND", exception.getMessage());
+	}
+
+	@ExceptionHandler(PurchaseVendorNotFoundException.class)
+	public ResponseEntity<ApiResponse<Void>> handlePurchaseVendorNotFound(PurchaseVendorNotFoundException exception) {
+		return error(HttpStatus.NOT_FOUND, "PURCHASE_VENDOR_NOT_FOUND", exception.getMessage());
+	}
+
+	@ExceptionHandler(PurchaseWarehouseNotFoundException.class)
+	public ResponseEntity<ApiResponse<Void>> handlePurchaseWarehouseNotFound(
+			PurchaseWarehouseNotFoundException exception
+	) {
+		return error(HttpStatus.NOT_FOUND, "PURCHASE_WAREHOUSE_NOT_FOUND", exception.getMessage());
+	}
+
+	@ExceptionHandler(PurchaseOrderAlreadyExistsException.class)
+	public ResponseEntity<ApiResponse<Void>> handlePurchaseOrderAlreadyExists(
+			PurchaseOrderAlreadyExistsException exception
+	) {
+		return error(HttpStatus.CONFLICT, "PURCHASE_ORDER_ALREADY_EXISTS", exception.getMessage());
 	}
 
 	@ExceptionHandler(InactivePurchaseUserException.class)
