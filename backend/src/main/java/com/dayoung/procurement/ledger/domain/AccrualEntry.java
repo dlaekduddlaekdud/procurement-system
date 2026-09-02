@@ -88,6 +88,27 @@ public class AccrualEntry {
 		this.createdBy = createdBy;
 	}
 
+	public static AccrualEntry forInvoiceMatch(
+			String entryNumber,
+			PurchaseOrderLine purchaseOrderLine,
+			BigDecimal amount,
+			String currency,
+			LocalDate postingDate,
+			String period,
+			AppUser createdBy
+	) {
+		AccrualEntry entry = new AccrualEntry();
+		entry.entryNumber = entryNumber;
+		entry.entryType = AccrualEntryType.INVOICE_MATCH;
+		entry.purchaseOrderLine = purchaseOrderLine;
+		entry.amount = amount;
+		entry.currency = currency;
+		entry.postingDate = postingDate;
+		entry.period = period;
+		entry.createdBy = createdBy;
+		return entry;
+	}
+
 	public Long getId() {
 		return id;
 	}

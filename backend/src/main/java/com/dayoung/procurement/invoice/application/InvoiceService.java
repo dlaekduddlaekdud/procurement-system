@@ -4,6 +4,7 @@ import com.dayoung.procurement.closing.application.ClosePeriodService;
 import com.dayoung.procurement.invoice.domain.Invoice;
 import com.dayoung.procurement.invoice.exception.DuplicateInvoiceException;
 import com.dayoung.procurement.invoice.repository.InvoiceRepository;
+import com.dayoung.procurement.matching.application.ThreeWayMatchingService;
 import com.dayoung.procurement.purchase.domain.PurchaseOrder;
 import com.dayoung.procurement.purchase.domain.PurchaseOrderLine;
 import com.dayoung.procurement.purchase.exception.InactivePurchaseUserException;
@@ -37,19 +38,22 @@ public class InvoiceService {
 	private final AppUserRepository appUserRepository;
 	private final UserRoleRepository userRoleRepository;
 	private final ClosePeriodService closePeriodService;
+	private final ThreeWayMatchingService matchingService;
 
 	public InvoiceService(
 			InvoiceRepository invoiceRepository,
 			PurchaseOrderRepository purchaseOrderRepository,
 			AppUserRepository appUserRepository,
 			UserRoleRepository userRoleRepository,
-			ClosePeriodService closePeriodService
+			ClosePeriodService closePeriodService,
+			ThreeWayMatchingService matchingService
 	) {
 		this.invoiceRepository = invoiceRepository;
 		this.purchaseOrderRepository = purchaseOrderRepository;
 		this.appUserRepository = appUserRepository;
 		this.userRoleRepository = userRoleRepository;
 		this.closePeriodService = closePeriodService;
+		this.matchingService = matchingService;
 	}
 
 	@Transactional
@@ -88,7 +92,13 @@ public class InvoiceService {
 			}
 			invoice.addLine(orderLine, lineCommand.quantity(), lineCommand.unitPrice());
 		}
-		return invoiceRepository.save(invoice).getId();
+		Invoice savedInvoice = invoiceRepository.saveAndFlush(invoice);
+		savedInvoice.getLines().forEach(line -> matchingService.matchAndSettle(
+				line.getPurchaseOrderLine().getId(),
+				savedInvoice.getPostingDate(),
+				buyer
+		));
+		return savedInvoice.getId();
 	}
 
 	private void validateUniqueLines(Iterable<CreateInvoiceLineCommand> lines) {

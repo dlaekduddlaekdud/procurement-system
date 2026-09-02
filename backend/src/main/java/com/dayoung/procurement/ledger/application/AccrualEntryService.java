@@ -3,14 +3,17 @@ package com.dayoung.procurement.ledger.application;
 import com.dayoung.procurement.ledger.domain.AccrualEntry;
 import com.dayoung.procurement.ledger.domain.AccrualEntryType;
 import com.dayoung.procurement.ledger.repository.AccrualEntryRepository;
+import com.dayoung.procurement.purchase.domain.PurchaseOrderLine;
 import com.dayoung.procurement.receipt.domain.GoodsReceipt;
 import com.dayoung.procurement.receipt.domain.GoodsReceiptLine;
 import com.dayoung.procurement.receipt.domain.GoodsReceiptStatus;
 import com.dayoung.procurement.receipt.exception.GoodsReceiptNotFoundException;
 import com.dayoung.procurement.receipt.exception.InvalidGoodsReceiptStateException;
 import com.dayoung.procurement.receipt.repository.GoodsReceiptRepository;
+import com.dayoung.procurement.user.domain.AppUser;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.UUID;
@@ -64,6 +67,35 @@ public class AccrualEntryService {
 			);
 			accrualEntryRepository.save(entry);
 		}
+	}
+
+	@Transactional
+	public void createForMatching(
+			PurchaseOrderLine orderLine,
+			BigDecimal invoicedAmount,
+			String currency,
+			LocalDate postingDate,
+			AppUser createdBy
+	) {
+		BigDecimal matchedAmount = accrualEntryRepository.sumAmountByPurchaseOrderLineIdAndEntryType(
+				orderLine.getId(),
+				AccrualEntryType.INVOICE_MATCH
+		).abs();
+		BigDecimal amountToMatch = invoicedAmount.subtract(matchedAmount);
+		if (amountToMatch.signum() <= 0) {
+			return;
+		}
+
+		AccrualEntry entry = AccrualEntry.forInvoiceMatch(
+				generateEntryNumber(),
+				orderLine,
+				amountToMatch.negate(),
+				currency,
+				postingDate,
+				postingDate.format(PERIOD_FORMAT),
+				createdBy
+		);
+		accrualEntryRepository.save(entry);
 	}
 
 	private String generateEntryNumber() {

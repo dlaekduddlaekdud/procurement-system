@@ -11,6 +11,9 @@ import com.dayoung.procurement.invoice.domain.InvoiceLine;
 import com.dayoung.procurement.invoice.exception.DuplicateInvoiceException;
 import com.dayoung.procurement.invoice.repository.InvoiceLineRepository;
 import com.dayoung.procurement.invoice.repository.InvoiceRepository;
+import com.dayoung.procurement.ledger.domain.AccrualEntry;
+import com.dayoung.procurement.ledger.domain.AccrualEntryType;
+import com.dayoung.procurement.ledger.repository.AccrualEntryRepository;
 import com.dayoung.procurement.masterdata.domain.Department;
 import com.dayoung.procurement.masterdata.domain.Item;
 import com.dayoung.procurement.masterdata.domain.Vendor;
@@ -73,6 +76,9 @@ class InvoiceServiceTest {
 
 	@Autowired
 	private MatchResultRepository matchResultRepository;
+
+	@Autowired
+	private AccrualEntryRepository accrualEntryRepository;
 
 	@Autowired
 	private PurchaseRequestService purchaseRequestService;
@@ -196,23 +202,57 @@ class InvoiceServiceTest {
 				createSingleLineInvoiceCommand("INV-HOLD-001", lineId, "1.000")
 		);
 
-		Long resultId = threeWayMatchingService.match(lineId);
+		Long resultId = threeWayMatchingService.evaluateAndSave(lineId);
 		MatchResult hold = matchResultRepository.findById(resultId).orElseThrow();
 		assertEquals(MatchingStatus.HOLD_QUANTITY, hold.getStatus());
 		assertEquals(new BigDecimal("0.800"), hold.getReceivedQuantity());
+		assertEquals(
+				List.of(AccrualEntryType.GR_ACCRUAL),
+				accrualEntryRepository.findAllByPurchaseOrderLine_IdOrderById(lineId).stream()
+						.map(AccrualEntry::getEntryType)
+						.toList()
+		);
 
 		goodsReceiptService.create(
 				testOrder.orderId(),
 				testOrder.buyerId(),
 				createReceiptCommand(lineId, "0.200")
 		);
-		Long resolvedResultId = threeWayMatchingService.match(lineId);
+		Long resolvedResultId = threeWayMatchingService.evaluateAndSave(lineId);
 		MatchResult resolved = matchResultRepository.findById(resolvedResultId).orElseThrow();
 
 		assertEquals(resultId, resolvedResultId);
 		assertEquals(MatchingStatus.MATCHED, resolved.getStatus());
 		assertEquals(new BigDecimal("1.000"), resolved.getReceivedQuantity());
 		assertEquals(1, matchResultRepository.count());
+	}
+
+	@Test
+	void createsInvoiceMatchEntryOnlyOnceWhenMatchingSucceeds() {
+		TestOrder testOrder = createOrder("matching-entry", true);
+		Long lineId = testOrder.lineIds().getFirst();
+		goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createReceiptCommand(lineId, "1.000")
+		);
+
+		invoiceService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createSingleLineInvoiceCommand("INV-MATCH-001", lineId, "1.000")
+		);
+
+		List<AccrualEntry> entries = accrualEntryRepository.findAllByPurchaseOrderLine_IdOrderById(lineId);
+		assertEquals(2, entries.size());
+		assertEquals(AccrualEntryType.GR_ACCRUAL, entries.getFirst().getEntryType());
+		assertEquals(new BigDecimal("1000.00"), entries.getFirst().getAmount());
+		assertEquals(AccrualEntryType.INVOICE_MATCH, entries.getLast().getEntryType());
+		assertEquals(new BigDecimal("-1000.00"), entries.getLast().getAmount());
+
+		AppUser buyer = appUserRepository.findById(testOrder.buyerId()).orElseThrow();
+		threeWayMatchingService.matchAndSettle(lineId, LocalDate.now(), buyer);
+		assertEquals(2, accrualEntryRepository.findAllByPurchaseOrderLine_IdOrderById(lineId).size());
 	}
 
 	private TestOrder createOrder(String testName, boolean send) {
