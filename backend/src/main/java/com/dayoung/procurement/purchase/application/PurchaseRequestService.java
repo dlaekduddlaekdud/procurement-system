@@ -108,6 +108,19 @@ public class PurchaseRequestService {
 	}
 
 	@Transactional
+	public void update(
+			@NotNull Long requestId,
+			@NotNull Long requesterId,
+			@NotNull @Valid UpdatePurchaseRequestCommand command
+	) {
+		AppUser requester = getActiveUser(requesterId);
+		requireRole(requesterId, RoleCode.REQUESTER);
+		PurchaseRequest request = getRequest(requestId);
+		validateOwner(request, requester.getId());
+		request.updateDetails(command.title(), command.purpose(), command.neededDate());
+	}
+
+	@Transactional
 	public void submit(Long requestId, Long requesterId) {
 		AppUser requester = getActiveUser(requesterId);
 		requireRole(requesterId, RoleCode.REQUESTER);

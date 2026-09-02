@@ -138,6 +138,13 @@ public class PurchaseRequest {
 		return line;
 	}
 
+	public void updateDetails(String title, String purpose, LocalDate neededDate) {
+		requireStatus(PurchaseRequestStatus.DRAFT, "수정");
+		this.title = title;
+		this.purpose = purpose;
+		this.neededDate = neededDate;
+	}
+
 	public void submit(LocalDateTime submittedAt) {
 		requireStatus(PurchaseRequestStatus.DRAFT, "제출");
 		if (lines.isEmpty()) {

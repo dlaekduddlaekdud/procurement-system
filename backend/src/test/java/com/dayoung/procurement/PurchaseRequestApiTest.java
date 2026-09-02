@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -168,6 +169,73 @@ class PurchaseRequestApiTest {
 	}
 
 	@Test
+	void updatesDraftPurchaseRequestAsOwner() throws Exception {
+		AppUser requester = createUser("api-update-requester@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		entityManager.flush();
+
+		mockMvc.perform(put("/api/purchase-requests/{requestId}", requestId)
+						.with(httpBasic(requester.getEmail(), PASSWORD))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(updateRequestJson("변경된 제목", LocalDate.now().plusDays(21))))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.success").value(true));
+
+		entityManager.flush();
+		entityManager.clear();
+		PurchaseRequest updatedRequest = purchaseRequestRepository.findById(requestId).orElseThrow();
+		assertEquals("변경된 제목", updatedRequest.getTitle());
+		assertEquals("변경된 목적", updatedRequest.getPurpose());
+	}
+
+	@Test
+	void rejectsPurchaseRequestUpdateByAnotherRequester() throws Exception {
+		AppUser owner = createUser("api-update-owner@example.com", RoleCode.REQUESTER);
+		AppUser anotherRequester = createUser("api-update-another@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(owner.getId(), createCommand(item.getId()));
+		entityManager.flush();
+
+		mockMvc.perform(put("/api/purchase-requests/{requestId}", requestId)
+						.with(httpBasic(anotherRequester.getEmail(), PASSWORD))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(updateRequestJson("변경 시도", LocalDate.now().plusDays(21))))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+	}
+
+	@Test
+	void rejectsSubmittedPurchaseRequestUpdate() throws Exception {
+		AppUser requester = createUser("api-update-submitted@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = createAndSubmit(requester, item);
+		entityManager.flush();
+
+		mockMvc.perform(put("/api/purchase-requests/{requestId}", requestId)
+						.with(httpBasic(requester.getEmail(), PASSWORD))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(updateRequestJson("변경 시도", LocalDate.now().plusDays(21))))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.error.code").value("INVALID_PURCHASE_REQUEST_STATE"));
+	}
+
+	@Test
+	void rejectsInvalidPurchaseRequestUpdateInput() throws Exception {
+		AppUser requester = createUser("api-update-validation@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		entityManager.flush();
+
+		mockMvc.perform(put("/api/purchase-requests/{requestId}", requestId)
+						.with(httpBasic(requester.getEmail(), PASSWORD))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(updateRequestJson("", LocalDate.now().minusDays(1))))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+	}
+
+	@Test
 	void rejectsInvalidPurchaseRequestInput() throws Exception {
 		AppUser requester = createUser("api-validation-requester@example.com", RoleCode.REQUESTER);
 		Item item = createItem();
@@ -274,5 +342,15 @@ class PurchaseRequestApiTest {
 				  ]
 				}
 				""".formatted(LocalDate.now().plusDays(14), itemId, quantity);
+	}
+
+	private String updateRequestJson(String title, LocalDate neededDate) {
+		return """
+				{
+				  "title": "%s",
+				  "purpose": "변경된 목적",
+				  "neededDate": "%s"
+				}
+				""".formatted(title, neededDate);
 	}
 }

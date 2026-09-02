@@ -12,8 +12,10 @@ import com.dayoung.procurement.purchase.application.CreatePurchaseRequestLineCom
 import com.dayoung.procurement.purchase.application.PurchaseRequestDetail;
 import com.dayoung.procurement.purchase.application.PurchaseRequestService;
 import com.dayoung.procurement.purchase.application.PurchaseRequestSummary;
+import com.dayoung.procurement.purchase.application.UpdatePurchaseRequestCommand;
 import com.dayoung.procurement.purchase.domain.PurchaseRequest;
 import com.dayoung.procurement.purchase.domain.PurchaseRequestStatus;
+import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateException;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestAccessDeniedException;
 import com.dayoung.procurement.purchase.exception.PurchaseRoleRequiredException;
 import com.dayoung.procurement.purchase.exception.SelfApprovalNotAllowedException;
@@ -131,6 +133,55 @@ class PurchaseRequestServiceTest {
 
 		assertThrows(PurchaseRequestAccessDeniedException.class,
 				() -> purchaseRequestService.getMine(requestId, anotherRequester.getId()));
+	}
+
+	@Test
+	void updatesDraftPurchaseRequestCreatedByRequester() {
+		AppUser requester = createUser("service-update-requester@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		LocalDate changedNeededDate = LocalDate.now().plusDays(21);
+
+		purchaseRequestService.update(
+				requestId,
+				requester.getId(),
+				new UpdatePurchaseRequestCommand("변경된 제목", "변경된 목적", changedNeededDate)
+		);
+		entityManager.flush();
+		entityManager.clear();
+
+		PurchaseRequest updatedRequest = purchaseRequestRepository.findById(requestId).orElseThrow();
+		assertEquals("변경된 제목", updatedRequest.getTitle());
+		assertEquals("변경된 목적", updatedRequest.getPurpose());
+		assertEquals(changedNeededDate, updatedRequest.getNeededDate());
+	}
+
+	@Test
+	void rejectsPurchaseRequestUpdateByAnotherRequester() {
+		AppUser owner = createUser("service-update-owner@example.com", RoleCode.REQUESTER);
+		AppUser anotherRequester = createUser("service-update-another@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(owner.getId(), createCommand(item.getId()));
+
+		assertThrows(PurchaseRequestAccessDeniedException.class, () -> purchaseRequestService.update(
+				requestId,
+				anotherRequester.getId(),
+				new UpdatePurchaseRequestCommand("변경 시도", null, LocalDate.now().plusDays(21))
+		));
+	}
+
+	@Test
+	void rejectsSubmittedPurchaseRequestUpdate() {
+		AppUser requester = createUser("service-update-submitted@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		purchaseRequestService.submit(requestId, requester.getId());
+
+		assertThrows(InvalidPurchaseRequestStateException.class, () -> purchaseRequestService.update(
+				requestId,
+				requester.getId(),
+				new UpdatePurchaseRequestCommand("변경 시도", null, LocalDate.now().plusDays(21))
+		));
 	}
 
 	@Test

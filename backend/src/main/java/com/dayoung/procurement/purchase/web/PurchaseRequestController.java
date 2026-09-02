@@ -13,6 +13,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -43,6 +44,17 @@ public class PurchaseRequestController {
 			@PathVariable Long requestId
 	) {
 		return ApiResponse.success(purchaseRequestService.getMine(requestId, user.getUserId()));
+	}
+
+	@PutMapping("/{requestId}")
+	@PreAuthorize("hasRole('REQUESTER')")
+	public ApiResponse<Void> update(
+			@AuthenticationPrincipal AuthenticatedUser user,
+			@PathVariable Long requestId,
+			@Valid @RequestBody UpdatePurchaseRequestRequest request
+	) {
+		purchaseRequestService.update(requestId, user.getUserId(), request.toCommand());
+		return ApiResponse.success(null);
 	}
 
 	@PostMapping
