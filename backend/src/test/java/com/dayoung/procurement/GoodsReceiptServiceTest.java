@@ -11,6 +11,10 @@ import com.dayoung.procurement.masterdata.repository.DepartmentRepository;
 import com.dayoung.procurement.masterdata.repository.ItemRepository;
 import com.dayoung.procurement.masterdata.repository.VendorRepository;
 import com.dayoung.procurement.masterdata.repository.WarehouseRepository;
+import com.dayoung.procurement.ledger.application.AccrualEntryService;
+import com.dayoung.procurement.ledger.domain.AccrualEntry;
+import com.dayoung.procurement.ledger.domain.AccrualEntryType;
+import com.dayoung.procurement.ledger.repository.AccrualEntryRepository;
 import com.dayoung.procurement.purchase.application.CreatePurchaseOrderCommand;
 import com.dayoung.procurement.purchase.application.CreatePurchaseRequestCommand;
 import com.dayoung.procurement.purchase.application.CreatePurchaseRequestLineCommand;
@@ -38,6 +42,7 @@ import com.dayoung.procurement.user.repository.RoleRepository;
 import com.dayoung.procurement.user.repository.UserRoleRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,8 +53,16 @@ import org.springframework.context.annotation.Import;
 @SpringBootTest
 class GoodsReceiptServiceTest {
 
+	private static final DateTimeFormatter PERIOD_FORMAT = DateTimeFormatter.ofPattern("yyyyMM");
+
 	@Autowired
 	private GoodsReceiptService goodsReceiptService;
+
+	@Autowired
+	private AccrualEntryService accrualEntryService;
+
+	@Autowired
+	private AccrualEntryRepository accrualEntryRepository;
 
 	@Autowired
 	private PurchaseOrderService purchaseOrderService;
@@ -95,7 +108,7 @@ class GoodsReceiptServiceTest {
 		TestOrder testOrder = createSentOrder("receipt-state");
 		long initialReceiptCount = goodsReceiptRepository.count();
 
-		goodsReceiptService.create(
+		Long firstReceiptId = goodsReceiptService.create(
 				testOrder.orderId(),
 				testOrder.buyerId(),
 				createCommand(testOrder.lineId(), "6.000")
@@ -104,8 +117,15 @@ class GoodsReceiptServiceTest {
 		PurchaseOrder partiallyReceived = purchaseOrderRepository.findById(testOrder.orderId()).orElseThrow();
 		assertEquals(PurchaseOrderStatus.PARTIALLY_RECEIVED, partiallyReceived.getStatus());
 		assertEquals(new BigDecimal("6.000"), getPostedQuantity(testOrder.lineId()));
+		List<AccrualEntry> firstEntries = accrualEntryRepository
+				.findAllByGoodsReceiptLine_GoodsReceipt_IdOrderById(firstReceiptId);
+		assertEquals(1, firstEntries.size());
+		assertEquals(AccrualEntryType.GR_ACCRUAL, firstEntries.getFirst().getEntryType());
+		assertEquals(new BigDecimal("6000.00"), firstEntries.getFirst().getAmount());
+		assertEquals(LocalDate.now().format(PERIOD_FORMAT),
+				firstEntries.getFirst().getPeriod());
 
-		goodsReceiptService.create(
+		Long secondReceiptId = goodsReceiptService.create(
 				testOrder.orderId(),
 				testOrder.buyerId(),
 				createCommand(testOrder.lineId(), "4.000")
@@ -115,6 +135,13 @@ class GoodsReceiptServiceTest {
 		assertEquals(PurchaseOrderStatus.RECEIVED, received.getStatus());
 		assertEquals(new BigDecimal("10.000"), getPostedQuantity(testOrder.lineId()));
 		assertEquals(initialReceiptCount + 2, goodsReceiptRepository.count());
+		assertEquals(1, accrualEntryRepository
+				.findAllByGoodsReceiptLine_GoodsReceipt_IdOrderById(secondReceiptId)
+				.size());
+
+		long accrualCount = accrualEntryRepository.count();
+		accrualEntryService.createForGoodsReceipt(firstReceiptId);
+		assertEquals(accrualCount, accrualEntryRepository.count());
 	}
 
 	@Test
@@ -126,6 +153,7 @@ class GoodsReceiptServiceTest {
 				createCommand(testOrder.lineId(), "6.000")
 		);
 		long receiptCount = goodsReceiptRepository.count();
+		long accrualCount = accrualEntryRepository.count();
 
 		assertThrows(PurchaseOrderQuantityExceededException.class, () ->
 				goodsReceiptService.create(
@@ -139,6 +167,7 @@ class GoodsReceiptServiceTest {
 		assertEquals(PurchaseOrderStatus.PARTIALLY_RECEIVED, order.getStatus());
 		assertEquals(new BigDecimal("6.000"), getPostedQuantity(testOrder.lineId()));
 		assertEquals(receiptCount, goodsReceiptRepository.count());
+		assertEquals(accrualCount, accrualEntryRepository.count());
 	}
 
 	@Test

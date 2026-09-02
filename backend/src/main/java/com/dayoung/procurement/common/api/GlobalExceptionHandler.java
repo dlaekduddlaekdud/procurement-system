@@ -15,6 +15,8 @@ import com.dayoung.procurement.purchase.exception.PurchaseRoleRequiredException;
 import com.dayoung.procurement.purchase.exception.PurchaseVendorNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseWarehouseNotFoundException;
 import com.dayoung.procurement.purchase.exception.SelfApprovalNotAllowedException;
+import com.dayoung.procurement.receipt.exception.GoodsReceiptNotFoundException;
+import com.dayoung.procurement.receipt.exception.InvalidGoodsReceiptStateException;
 import com.dayoung.procurement.receipt.exception.PurchaseOrderQuantityExceededException;
 import jakarta.validation.ConstraintViolationException;
 import java.util.List;
@@ -27,6 +29,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+	@ExceptionHandler(GoodsReceiptNotFoundException.class)
+	public ResponseEntity<ApiResponse<Void>> handleGoodsReceiptNotFound(GoodsReceiptNotFoundException exception) {
+		return error(HttpStatus.NOT_FOUND, "GOODS_RECEIPT_NOT_FOUND", exception.getMessage());
+	}
 
 	@ExceptionHandler(PurchaseRequestNotFoundException.class)
 	public ResponseEntity<ApiResponse<Void>> handlePurchaseRequestNotFound(PurchaseRequestNotFoundException exception) {
@@ -103,6 +110,13 @@ public class GlobalExceptionHandler {
 			PurchaseOrderQuantityExceededException exception
 	) {
 		return error(HttpStatus.CONFLICT, "PURCHASE_ORDER_QUANTITY_EXCEEDED", exception.getMessage());
+	}
+
+	@ExceptionHandler(InvalidGoodsReceiptStateException.class)
+	public ResponseEntity<ApiResponse<Void>> handleInvalidGoodsReceiptState(
+			InvalidGoodsReceiptStateException exception
+	) {
+		return error(HttpStatus.CONFLICT, "INVALID_GOODS_RECEIPT_STATE", exception.getMessage());
 	}
 
 	@ExceptionHandler(InvalidPurchaseRequestStateException.class)

@@ -1,5 +1,6 @@
 package com.dayoung.procurement.receipt.application;
 
+import com.dayoung.procurement.ledger.application.AccrualEntryService;
 import com.dayoung.procurement.purchase.domain.PurchaseOrder;
 import com.dayoung.procurement.purchase.domain.PurchaseOrderLine;
 import com.dayoung.procurement.purchase.exception.InactivePurchaseUserException;
@@ -42,6 +43,7 @@ public class GoodsReceiptService {
 	private final AppUserRepository appUserRepository;
 	private final UserRoleRepository userRoleRepository;
 	private final GoodsReceiptNumberGenerator numberGenerator;
+	private final AccrualEntryService accrualEntryService;
 
 	public GoodsReceiptService(
 			PurchaseOrderRepository purchaseOrderRepository,
@@ -49,7 +51,8 @@ public class GoodsReceiptService {
 			GoodsReceiptLineRepository goodsReceiptLineRepository,
 			AppUserRepository appUserRepository,
 			UserRoleRepository userRoleRepository,
-			GoodsReceiptNumberGenerator numberGenerator
+			GoodsReceiptNumberGenerator numberGenerator,
+			AccrualEntryService accrualEntryService
 	) {
 		this.purchaseOrderRepository = purchaseOrderRepository;
 		this.goodsReceiptRepository = goodsReceiptRepository;
@@ -57,6 +60,7 @@ public class GoodsReceiptService {
 		this.appUserRepository = appUserRepository;
 		this.userRoleRepository = userRoleRepository;
 		this.numberGenerator = numberGenerator;
+		this.accrualEntryService = accrualEntryService;
 	}
 
 	@Transactional
@@ -108,7 +112,9 @@ public class GoodsReceiptService {
 						.compareTo(orderLine.getQuantity()) == 0
 		);
 		order.applyReceiptStatus(fullyReceived);
-		return goodsReceiptRepository.save(receipt).getId();
+		Long receiptId = goodsReceiptRepository.save(receipt).getId();
+		accrualEntryService.createForGoodsReceipt(receiptId);
+		return receiptId;
 	}
 
 	private void validateUniqueLines(Iterable<CreateGoodsReceiptLineCommand> lines) {
