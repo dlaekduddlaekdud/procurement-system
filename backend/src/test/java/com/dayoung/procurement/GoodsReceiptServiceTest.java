@@ -2,6 +2,7 @@ package com.dayoung.procurement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dayoung.procurement.closing.domain.ClosePeriod;
 import com.dayoung.procurement.closing.exception.ClosedPeriodException;
@@ -48,6 +49,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -212,6 +219,54 @@ class GoodsReceiptServiceTest {
 		assertEquals(PurchaseOrderStatus.SENT, order.getStatus());
 		assertEquals(receiptCount, goodsReceiptRepository.count());
 		assertEquals(accrualCount, accrualEntryRepository.count());
+	}
+
+	@Test
+	void allowsOnlyOneConcurrentReceiptForLastRemainingQuantity() throws Exception {
+		TestOrder testOrder = createSentOrder("receipt-concurrent");
+		goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createCommand(testOrder.lineId(), "6.000")
+		);
+		long receiptCount = goodsReceiptRepository.count();
+		long accrualCount = accrualEntryRepository.count();
+		CountDownLatch ready = new CountDownLatch(2);
+		CountDownLatch start = new CountDownLatch(1);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+
+		try {
+			Callable<Boolean> receiveRemainingQuantity = () -> {
+				ready.countDown();
+				start.await();
+				try {
+					goodsReceiptService.create(
+							testOrder.orderId(),
+							testOrder.buyerId(),
+							createCommand(testOrder.lineId(), "4.000")
+					);
+					return true;
+				} catch (InvalidPurchaseOrderStateException | PurchaseOrderQuantityExceededException exception) {
+					return false;
+				}
+			};
+			Future<Boolean> firstResult = executor.submit(receiveRemainingQuantity);
+			Future<Boolean> secondResult = executor.submit(receiveRemainingQuantity);
+			assertTrue(ready.await(5, TimeUnit.SECONDS));
+			start.countDown();
+
+			long successCount = (firstResult.get(20, TimeUnit.SECONDS) ? 1 : 0)
+					+ (secondResult.get(20, TimeUnit.SECONDS) ? 1 : 0);
+			assertEquals(1, successCount);
+		} finally {
+			executor.shutdownNow();
+		}
+
+		PurchaseOrder order = purchaseOrderRepository.findById(testOrder.orderId()).orElseThrow();
+		assertEquals(PurchaseOrderStatus.RECEIVED, order.getStatus());
+		assertEquals(new BigDecimal("10.000"), getPostedQuantity(testOrder.lineId()));
+		assertEquals(receiptCount + 1, goodsReceiptRepository.count());
+		assertEquals(accrualCount + 1, accrualEntryRepository.count());
 	}
 
 	private TestOrder createSentOrder(String suffix) {
