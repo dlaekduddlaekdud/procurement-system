@@ -21,6 +21,9 @@ import com.dayoung.procurement.masterdata.repository.VendorRepository;
 import com.dayoung.procurement.masterdata.repository.WarehouseRepository;
 import com.dayoung.procurement.matching.application.MatchingLineTotals;
 import com.dayoung.procurement.matching.application.ThreeWayMatchingService;
+import com.dayoung.procurement.matching.domain.MatchResult;
+import com.dayoung.procurement.matching.domain.MatchingStatus;
+import com.dayoung.procurement.matching.repository.MatchResultRepository;
 import com.dayoung.procurement.purchase.application.CreatePurchaseOrderCommand;
 import com.dayoung.procurement.purchase.application.CreatePurchaseRequestCommand;
 import com.dayoung.procurement.purchase.application.CreatePurchaseRequestLineCommand;
@@ -67,6 +70,9 @@ class InvoiceServiceTest {
 
 	@Autowired
 	private ThreeWayMatchingService threeWayMatchingService;
+
+	@Autowired
+	private MatchResultRepository matchResultRepository;
 
 	@Autowired
 	private PurchaseRequestService purchaseRequestService;
@@ -173,6 +179,40 @@ class InvoiceServiceTest {
 		assertEquals(new BigDecimal("1.000"), totals.invoicedQuantity());
 		assertEquals(new BigDecimal("1000.00"), totals.orderedAmount());
 		assertEquals(new BigDecimal("1000.00"), totals.invoicedAmount());
+	}
+
+	@Test
+	void storesCurrentHoldAndUpdatesSameResultWhenHoldIsResolved() {
+		TestOrder testOrder = createOrder("matching-result", true);
+		Long lineId = testOrder.lineIds().getFirst();
+		goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createReceiptCommand(lineId, "0.800")
+		);
+		invoiceService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createSingleLineInvoiceCommand("INV-HOLD-001", lineId, "1.000")
+		);
+
+		Long resultId = threeWayMatchingService.match(lineId);
+		MatchResult hold = matchResultRepository.findById(resultId).orElseThrow();
+		assertEquals(MatchingStatus.HOLD_QUANTITY, hold.getStatus());
+		assertEquals(new BigDecimal("0.800"), hold.getReceivedQuantity());
+
+		goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createReceiptCommand(lineId, "0.200")
+		);
+		Long resolvedResultId = threeWayMatchingService.match(lineId);
+		MatchResult resolved = matchResultRepository.findById(resolvedResultId).orElseThrow();
+
+		assertEquals(resultId, resolvedResultId);
+		assertEquals(MatchingStatus.MATCHED, resolved.getStatus());
+		assertEquals(new BigDecimal("1.000"), resolved.getReceivedQuantity());
+		assertEquals(1, matchResultRepository.count());
 	}
 
 	private TestOrder createOrder(String testName, boolean send) {
