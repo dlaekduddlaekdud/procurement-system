@@ -41,14 +41,14 @@ class UserRoleRepositoryTest {
 
 	@Test
 	void savesUserAndAssignedRole() {
-		Department department = departmentRepository.save(new Department("PURCHASE", "구매팀", null));
+		Department department = departmentRepository.findByCode("PURCHASE").orElseThrow();
 		AppUser user = appUserRepository.save(new AppUser(
 				"buyer@example.com",
 				"encoded-password",
 				"구매 담당자",
 				department
 		));
-		Role role = roleRepository.save(new Role(RoleCode.BUYER, "구매 담당자", "구매 승인 및 발주 담당"));
+		Role role = roleRepository.findByCode(RoleCode.BUYER).orElseThrow();
 		userRoleRepository.save(new UserRole(user, role));
 
 		entityManager.flush();

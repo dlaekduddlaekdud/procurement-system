@@ -62,21 +62,15 @@ class UserRoleMigrationTest {
 
 	@Test
 	void rejectsDuplicateRoleAssignment() {
-		Long departmentId = insertDepartment();
+		Long departmentId = findDepartmentId();
 		Long userId = insertUser(departmentId);
-		Long roleId = insertRole();
+		Long roleId = findRoleId();
 		assignRole(userId, roleId);
 
 		assertThrows(DataIntegrityViolationException.class, () -> assignRole(userId, roleId));
 	}
 
-	private Long insertDepartment() {
-		jdbcClient.sql("""
-				INSERT INTO department (code, name)
-				VALUES ('PURCHASE', '구매팀')
-				""")
-				.update();
-
+	private Long findDepartmentId() {
 		return jdbcClient.sql("SELECT id FROM department WHERE code = 'PURCHASE'")
 				.query(Long.class)
 				.single();
@@ -95,13 +89,7 @@ class UserRoleMigrationTest {
 				.single();
 	}
 
-	private Long insertRole() {
-		jdbcClient.sql("""
-				INSERT INTO `role` (code, name)
-				VALUES ('BUYER', '구매 담당자')
-				""")
-				.update();
-
+	private Long findRoleId() {
 		return jdbcClient.sql("SELECT id FROM `role` WHERE code = 'BUYER'")
 				.query(Long.class)
 				.single();

@@ -43,7 +43,7 @@ class MasterDataRepositoryTest {
 	@Test
 	void savesAndFindsMasterDataByCode() {
 		Department department = departmentRepository.save(new Department("DEV", "개발팀", "서비스 개발 담당"));
-		Warehouse warehouse = warehouseRepository.save(new Warehouse("WH-SEOUL", "서울 창고", "서울특별시"));
+		Warehouse warehouse = warehouseRepository.save(new Warehouse("WH-TEST-SEOUL", "테스트 서울 창고", "서울특별시"));
 		Item item = itemRepository.save(new Item(
 				"ITEM-001",
 				"업무용 노트북",
@@ -61,7 +61,7 @@ class MasterDataRepositoryTest {
 		assertNotNull(item.getId());
 		assertNotNull(vendor.getId());
 		assertEquals("개발팀", departmentRepository.findByCode("DEV").orElseThrow().getName());
-		assertEquals("서울 창고", warehouseRepository.findByCode("WH-SEOUL").orElseThrow().getName());
+		assertEquals("테스트 서울 창고", warehouseRepository.findByCode("WH-TEST-SEOUL").orElseThrow().getName());
 		assertEquals(new BigDecimal("2500000.00"),
 				itemRepository.findByCode("ITEM-001").orElseThrow().getStandardUnitPrice());
 		assertTrue(vendorRepository.existsByBusinessRegistrationNumber("1234567890"));
