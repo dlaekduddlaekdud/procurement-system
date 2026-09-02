@@ -146,6 +146,12 @@ public class PurchaseOrder {
 		}
 	}
 
+	public void requireInvoiceAllowed() {
+		if (status == PurchaseOrderStatus.CREATED || status == PurchaseOrderStatus.CANCELLED) {
+			throw new InvalidPurchaseOrderStateException(status, "송장을 등록");
+		}
+	}
+
 	public Long getId() {
 		return id;
 	}

@@ -1,6 +1,7 @@
 package com.dayoung.procurement.common.api;
 
 import com.dayoung.procurement.closing.exception.ClosedPeriodException;
+import com.dayoung.procurement.invoice.exception.DuplicateInvoiceException;
 import com.dayoung.procurement.purchase.exception.InactivePurchaseUserException;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseOrderStateException;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateException;
@@ -34,6 +35,11 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(ClosedPeriodException.class)
 	public ResponseEntity<ApiResponse<Void>> handleClosedPeriod(ClosedPeriodException exception) {
 		return error(HttpStatus.CONFLICT, "CLOSED_PERIOD", exception.getMessage());
+	}
+
+	@ExceptionHandler(DuplicateInvoiceException.class)
+	public ResponseEntity<ApiResponse<Void>> handleDuplicateInvoice(DuplicateInvoiceException exception) {
+		return error(HttpStatus.CONFLICT, "DUPLICATE_INVOICE", exception.getMessage());
 	}
 
 	@ExceptionHandler(GoodsReceiptNotFoundException.class)
