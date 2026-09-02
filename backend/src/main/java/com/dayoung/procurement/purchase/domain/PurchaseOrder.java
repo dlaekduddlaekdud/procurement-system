@@ -135,6 +135,17 @@ public class PurchaseOrder {
 		this.status = PurchaseOrderStatus.SENT;
 	}
 
+	public void applyReceiptStatus(boolean fullyReceived) {
+		requireReceivable();
+		this.status = fullyReceived ? PurchaseOrderStatus.RECEIVED : PurchaseOrderStatus.PARTIALLY_RECEIVED;
+	}
+
+	public void requireReceivable() {
+		if (status != PurchaseOrderStatus.SENT && status != PurchaseOrderStatus.PARTIALLY_RECEIVED) {
+			throw new InvalidPurchaseOrderStateException(status, "입고");
+		}
+	}
+
 	public Long getId() {
 		return id;
 	}

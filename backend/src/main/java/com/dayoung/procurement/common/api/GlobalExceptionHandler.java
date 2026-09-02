@@ -6,6 +6,7 @@ import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateExc
 import com.dayoung.procurement.purchase.exception.PurchaseItemNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseOrderAccessDeniedException;
 import com.dayoung.procurement.purchase.exception.PurchaseOrderAlreadyExistsException;
+import com.dayoung.procurement.purchase.exception.PurchaseOrderLineNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseOrderNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestAccessDeniedException;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestLineNotFoundException;
@@ -14,6 +15,7 @@ import com.dayoung.procurement.purchase.exception.PurchaseRoleRequiredException;
 import com.dayoung.procurement.purchase.exception.PurchaseVendorNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseWarehouseNotFoundException;
 import com.dayoung.procurement.purchase.exception.SelfApprovalNotAllowedException;
+import com.dayoung.procurement.receipt.exception.PurchaseOrderQuantityExceededException;
 import jakarta.validation.ConstraintViolationException;
 import java.util.List;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -67,6 +69,13 @@ public class GlobalExceptionHandler {
 		return error(HttpStatus.NOT_FOUND, "PURCHASE_ORDER_NOT_FOUND", exception.getMessage());
 	}
 
+	@ExceptionHandler(PurchaseOrderLineNotFoundException.class)
+	public ResponseEntity<ApiResponse<Void>> handlePurchaseOrderLineNotFound(
+			PurchaseOrderLineNotFoundException exception
+	) {
+		return error(HttpStatus.NOT_FOUND, "PURCHASE_ORDER_LINE_NOT_FOUND", exception.getMessage());
+	}
+
 	@ExceptionHandler(InactivePurchaseUserException.class)
 	public ResponseEntity<ApiResponse<Void>> handleInactivePurchaseUser(InactivePurchaseUserException exception) {
 		return error(HttpStatus.NOT_FOUND, "ACTIVE_USER_NOT_FOUND", exception.getMessage());
@@ -87,6 +96,13 @@ public class GlobalExceptionHandler {
 			InvalidPurchaseOrderStateException exception
 	) {
 		return error(HttpStatus.CONFLICT, "INVALID_PURCHASE_ORDER_STATE", exception.getMessage());
+	}
+
+	@ExceptionHandler(PurchaseOrderQuantityExceededException.class)
+	public ResponseEntity<ApiResponse<Void>> handlePurchaseOrderQuantityExceeded(
+			PurchaseOrderQuantityExceededException exception
+	) {
+		return error(HttpStatus.CONFLICT, "PURCHASE_ORDER_QUANTITY_EXCEEDED", exception.getMessage());
 	}
 
 	@ExceptionHandler(InvalidPurchaseRequestStateException.class)
