@@ -1,5 +1,6 @@
 package com.dayoung.procurement.receipt.application;
 
+import com.dayoung.procurement.closing.application.ClosePeriodService;
 import com.dayoung.procurement.ledger.application.AccrualEntryService;
 import com.dayoung.procurement.purchase.domain.PurchaseOrder;
 import com.dayoung.procurement.purchase.domain.PurchaseOrderLine;
@@ -44,6 +45,7 @@ public class GoodsReceiptService {
 	private final UserRoleRepository userRoleRepository;
 	private final GoodsReceiptNumberGenerator numberGenerator;
 	private final AccrualEntryService accrualEntryService;
+	private final ClosePeriodService closePeriodService;
 
 	public GoodsReceiptService(
 			PurchaseOrderRepository purchaseOrderRepository,
@@ -52,7 +54,8 @@ public class GoodsReceiptService {
 			AppUserRepository appUserRepository,
 			UserRoleRepository userRoleRepository,
 			GoodsReceiptNumberGenerator numberGenerator,
-			AccrualEntryService accrualEntryService
+			AccrualEntryService accrualEntryService,
+			ClosePeriodService closePeriodService
 	) {
 		this.purchaseOrderRepository = purchaseOrderRepository;
 		this.goodsReceiptRepository = goodsReceiptRepository;
@@ -61,6 +64,7 @@ public class GoodsReceiptService {
 		this.userRoleRepository = userRoleRepository;
 		this.numberGenerator = numberGenerator;
 		this.accrualEntryService = accrualEntryService;
+		this.closePeriodService = closePeriodService;
 	}
 
 	@Transactional
@@ -70,6 +74,7 @@ public class GoodsReceiptService {
 			@NotNull @Valid CreateGoodsReceiptCommand command
 	) {
 		AppUser buyer = getActiveBuyer(buyerId);
+		closePeriodService.requireOpen(command.postingDate());
 		PurchaseOrder order = purchaseOrderRepository.findByIdForReceipt(orderId)
 				.orElseThrow(() -> new PurchaseOrderNotFoundException(orderId));
 		validateOrderAccess(order, buyer);

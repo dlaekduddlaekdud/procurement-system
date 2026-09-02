@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.dayoung.procurement.closing.domain.ClosePeriod;
+import com.dayoung.procurement.closing.repository.ClosePeriodRepository;
 import com.dayoung.procurement.masterdata.domain.Department;
 import com.dayoung.procurement.masterdata.domain.Item;
 import com.dayoung.procurement.masterdata.domain.Vendor;
@@ -34,6 +36,8 @@ import com.dayoung.procurement.user.repository.UserRoleRepository;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +56,7 @@ import org.springframework.transaction.annotation.Transactional;
 class GoodsReceiptApiTest {
 
 	private static final String PASSWORD = "test-password";
+	private static final DateTimeFormatter PERIOD_FORMAT = DateTimeFormatter.ofPattern("yyyyMM");
 
 	@Autowired
 	private MockMvc mockMvc;
@@ -70,6 +75,9 @@ class GoodsReceiptApiTest {
 
 	@Autowired
 	private PurchaseOrderLineRepository purchaseOrderLineRepository;
+
+	@Autowired
+	private ClosePeriodRepository closePeriodRepository;
 
 	@Autowired
 	private DepartmentRepository departmentRepository;
@@ -140,6 +148,23 @@ class GoodsReceiptApiTest {
 				.andExpect(jsonPath("$.error.code").value("PURCHASE_ORDER_QUANTITY_EXCEEDED"));
 	}
 
+	@Test
+	void rejectsGoodsReceiptInClosedPeriodAtApiBoundary() throws Exception {
+		TestOrder testOrder = createSentOrder();
+		LocalDate postingDate = LocalDate.now().minusMonths(2).withDayOfMonth(15);
+		ClosePeriod closePeriod = new ClosePeriod(postingDate.format(PERIOD_FORMAT));
+		closePeriod.close(LocalDateTime.now());
+		closePeriodRepository.save(closePeriod);
+		entityManager.flush();
+
+		mockMvc.perform(post("/api/purchase-orders/{orderId}/goods-receipts", testOrder.orderId())
+						.with(httpBasic(testOrder.buyerEmail(), PASSWORD))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(createReceiptJson(testOrder.lineId(), "1.000", postingDate)))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.error.code").value("CLOSED_PERIOD"));
+	}
+
 	private TestOrder createSentOrder() {
 		String suffix = String.valueOf(System.nanoTime());
 		AppUser requester = createUser("receipt-api-requester-" + suffix + "@example.com", RoleCode.REQUESTER);
@@ -199,6 +224,10 @@ class GoodsReceiptApiTest {
 	}
 
 	private String createReceiptJson(Long lineId, String quantity) {
+		return createReceiptJson(lineId, quantity, LocalDate.now());
+	}
+
+	private String createReceiptJson(Long lineId, String quantity, LocalDate postingDate) {
 		return """
 				{
 				  "postingDate": "%s",
@@ -209,7 +238,7 @@ class GoodsReceiptApiTest {
 				    }
 				  ]
 				}
-				""".formatted(LocalDate.now(), lineId, quantity);
+				""".formatted(postingDate, lineId, quantity);
 	}
 
 	private record TestOrder(Long orderId, Long lineId, String buyerEmail) {

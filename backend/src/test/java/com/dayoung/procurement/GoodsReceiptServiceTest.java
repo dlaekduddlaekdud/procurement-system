@@ -3,6 +3,9 @@ package com.dayoung.procurement;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.dayoung.procurement.closing.domain.ClosePeriod;
+import com.dayoung.procurement.closing.exception.ClosedPeriodException;
+import com.dayoung.procurement.closing.repository.ClosePeriodRepository;
 import com.dayoung.procurement.masterdata.domain.Department;
 import com.dayoung.procurement.masterdata.domain.Item;
 import com.dayoung.procurement.masterdata.domain.Vendor;
@@ -42,6 +45,7 @@ import com.dayoung.procurement.user.repository.RoleRepository;
 import com.dayoung.procurement.user.repository.UserRoleRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -63,6 +67,9 @@ class GoodsReceiptServiceTest {
 
 	@Autowired
 	private AccrualEntryRepository accrualEntryRepository;
+
+	@Autowired
+	private ClosePeriodRepository closePeriodRepository;
 
 	@Autowired
 	private PurchaseOrderService purchaseOrderService;
@@ -183,6 +190,30 @@ class GoodsReceiptServiceTest {
 		);
 	}
 
+	@Test
+	void rejectsReceiptInClosedPeriodAndKeepsSavedState() {
+		TestOrder testOrder = createSentOrder("receipt-closed-period");
+		LocalDate postingDate = LocalDate.now().minusMonths(1).withDayOfMonth(15);
+		ClosePeriod closePeriod = new ClosePeriod(postingDate.format(PERIOD_FORMAT));
+		closePeriod.close(LocalDateTime.now());
+		closePeriodRepository.save(closePeriod);
+		long receiptCount = goodsReceiptRepository.count();
+		long accrualCount = accrualEntryRepository.count();
+
+		assertThrows(ClosedPeriodException.class, () ->
+				goodsReceiptService.create(
+						testOrder.orderId(),
+						testOrder.buyerId(),
+						createCommand(testOrder.lineId(), "1.000", postingDate)
+				)
+		);
+
+		PurchaseOrder order = purchaseOrderRepository.findById(testOrder.orderId()).orElseThrow();
+		assertEquals(PurchaseOrderStatus.SENT, order.getStatus());
+		assertEquals(receiptCount, goodsReceiptRepository.count());
+		assertEquals(accrualCount, accrualEntryRepository.count());
+	}
+
 	private TestOrder createSentOrder(String suffix) {
 		return createOrder(suffix, true);
 	}
@@ -243,8 +274,12 @@ class GoodsReceiptServiceTest {
 	}
 
 	private CreateGoodsReceiptCommand createCommand(Long lineId, String quantity) {
+		return createCommand(lineId, quantity, LocalDate.now());
+	}
+
+	private CreateGoodsReceiptCommand createCommand(Long lineId, String quantity, LocalDate postingDate) {
 		return new CreateGoodsReceiptCommand(
-				LocalDate.now(),
+				postingDate,
 				List.of(new CreateGoodsReceiptLineCommand(lineId, new BigDecimal(quantity)))
 		);
 	}

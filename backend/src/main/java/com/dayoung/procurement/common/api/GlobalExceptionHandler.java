@@ -1,5 +1,6 @@
 package com.dayoung.procurement.common.api;
 
+import com.dayoung.procurement.closing.exception.ClosedPeriodException;
 import com.dayoung.procurement.purchase.exception.InactivePurchaseUserException;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseOrderStateException;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateException;
@@ -29,6 +30,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+	@ExceptionHandler(ClosedPeriodException.class)
+	public ResponseEntity<ApiResponse<Void>> handleClosedPeriod(ClosedPeriodException exception) {
+		return error(HttpStatus.CONFLICT, "CLOSED_PERIOD", exception.getMessage());
+	}
 
 	@ExceptionHandler(GoodsReceiptNotFoundException.class)
 	public ResponseEntity<ApiResponse<Void>> handleGoodsReceiptNotFound(GoodsReceiptNotFoundException exception) {
