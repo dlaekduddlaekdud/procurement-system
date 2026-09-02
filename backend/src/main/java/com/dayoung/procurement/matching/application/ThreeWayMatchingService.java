@@ -2,6 +2,7 @@ package com.dayoung.procurement.matching.application;
 
 import com.dayoung.procurement.invoice.domain.InvoiceStatus;
 import com.dayoung.procurement.invoice.repository.InvoiceLineRepository;
+import com.dayoung.procurement.matching.domain.MatchingStatus;
 import com.dayoung.procurement.purchase.domain.PurchaseOrderLine;
 import com.dayoung.procurement.purchase.exception.PurchaseOrderLineNotFoundException;
 import com.dayoung.procurement.purchase.repository.PurchaseOrderLineRepository;
@@ -18,15 +19,22 @@ public class ThreeWayMatchingService {
 	private final PurchaseOrderLineRepository purchaseOrderLineRepository;
 	private final GoodsReceiptLineRepository goodsReceiptLineRepository;
 	private final InvoiceLineRepository invoiceLineRepository;
+	private final ThreeWayMatchingPolicy matchingPolicy;
 
 	public ThreeWayMatchingService(
 			PurchaseOrderLineRepository purchaseOrderLineRepository,
 			GoodsReceiptLineRepository goodsReceiptLineRepository,
-			InvoiceLineRepository invoiceLineRepository
+			InvoiceLineRepository invoiceLineRepository,
+			ThreeWayMatchingPolicy matchingPolicy
 	) {
 		this.purchaseOrderLineRepository = purchaseOrderLineRepository;
 		this.goodsReceiptLineRepository = goodsReceiptLineRepository;
 		this.invoiceLineRepository = invoiceLineRepository;
+		this.matchingPolicy = matchingPolicy;
+	}
+
+	public MatchingStatus decide(Long purchaseOrderLineId) {
+		return matchingPolicy.decide(calculateTotals(purchaseOrderLineId));
 	}
 
 	public MatchingLineTotals calculateTotals(Long purchaseOrderLineId) {
