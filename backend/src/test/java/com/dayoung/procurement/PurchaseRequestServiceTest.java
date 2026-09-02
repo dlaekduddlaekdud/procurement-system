@@ -9,7 +9,9 @@ import com.dayoung.procurement.masterdata.repository.DepartmentRepository;
 import com.dayoung.procurement.masterdata.repository.ItemRepository;
 import com.dayoung.procurement.purchase.application.CreatePurchaseRequestCommand;
 import com.dayoung.procurement.purchase.application.CreatePurchaseRequestLineCommand;
+import com.dayoung.procurement.purchase.application.PurchaseRequestDetail;
 import com.dayoung.procurement.purchase.application.PurchaseRequestService;
+import com.dayoung.procurement.purchase.application.PurchaseRequestSummary;
 import com.dayoung.procurement.purchase.domain.PurchaseRequest;
 import com.dayoung.procurement.purchase.domain.PurchaseRequestStatus;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestAccessDeniedException;
@@ -89,6 +91,46 @@ class PurchaseRequestServiceTest {
 
 		assertThrows(PurchaseRequestAccessDeniedException.class,
 				() -> purchaseRequestService.submit(requestId, anotherRequester.getId()));
+	}
+
+	@Test
+	void findsOnlyPurchaseRequestsCreatedByRequester() {
+		AppUser requester = createUser("service-list-requester@example.com", RoleCode.REQUESTER);
+		AppUser anotherRequester = createUser("service-list-another@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		purchaseRequestService.create(anotherRequester.getId(), createCommand(item.getId()));
+
+		List<PurchaseRequestSummary> results = purchaseRequestService.findMine(requester.getId());
+
+		assertEquals(1, results.size());
+		assertEquals(requestId, results.getFirst().id());
+		assertEquals(new BigDecimal("7500000.00"), results.getFirst().totalEstimatedAmount());
+	}
+
+	@Test
+	void findsPurchaseRequestDetailCreatedByRequester() {
+		AppUser requester = createUser("service-detail-requester@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+
+		PurchaseRequestDetail result = purchaseRequestService.getMine(requestId, requester.getId());
+
+		assertEquals(requestId, result.id());
+		assertEquals(requester.getId(), result.requesterId());
+		assertEquals(item.getId(), result.lines().getFirst().itemId());
+		assertEquals(new BigDecimal("7500000.00"), result.totalEstimatedAmount());
+	}
+
+	@Test
+	void rejectsPurchaseRequestDetailOwnedByAnotherRequester() {
+		AppUser owner = createUser("service-detail-owner@example.com", RoleCode.REQUESTER);
+		AppUser anotherRequester = createUser("service-detail-another@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(owner.getId(), createCommand(item.getId()));
+
+		assertThrows(PurchaseRequestAccessDeniedException.class,
+				() -> purchaseRequestService.getMine(requestId, anotherRequester.getId()));
 	}
 
 	@Test

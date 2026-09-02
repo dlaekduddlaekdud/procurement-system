@@ -2,6 +2,7 @@ package com.dayoung.procurement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -103,6 +104,67 @@ class PurchaseRequestApiTest {
 						.content(createRequestJson(1L, "3.000")))
 				.andExpect(status().isUnauthorized())
 				.andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+	}
+
+	@Test
+	void findsOnlyPurchaseRequestsCreatedByAuthenticatedRequester() throws Exception {
+		AppUser requester = createUser("api-list-requester@example.com", RoleCode.REQUESTER);
+		AppUser anotherRequester = createUser("api-list-another@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		purchaseRequestService.create(anotherRequester.getId(), createCommand(item.getId()));
+		entityManager.flush();
+
+		mockMvc.perform(get("/api/purchase-requests")
+						.with(httpBasic(requester.getEmail(), PASSWORD)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.success").value(true))
+				.andExpect(jsonPath("$.data.length()").value(1))
+				.andExpect(jsonPath("$.data[0].id").value(requestId))
+				.andExpect(jsonPath("$.data[0].totalEstimatedAmount").value(7500000.00));
+	}
+
+	@Test
+	void rejectsPurchaseRequestListByBuyerAtApiBoundary() throws Exception {
+		AppUser buyer = createUser("api-list-buyer@example.com", RoleCode.BUYER);
+		entityManager.flush();
+
+		mockMvc.perform(get("/api/purchase-requests")
+						.with(httpBasic(buyer.getEmail(), PASSWORD)))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+	}
+
+	@Test
+	void findsPurchaseRequestDetailCreatedByAuthenticatedRequester() throws Exception {
+		AppUser requester = createUser("api-detail-requester@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		entityManager.flush();
+
+		mockMvc.perform(get("/api/purchase-requests/{requestId}", requestId)
+						.with(httpBasic(requester.getEmail(), PASSWORD)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.success").value(true))
+				.andExpect(jsonPath("$.data.id").value(requestId))
+				.andExpect(jsonPath("$.data.requesterId").value(requester.getId()))
+				.andExpect(jsonPath("$.data.lines[0].itemId").value(item.getId()))
+				.andExpect(jsonPath("$.data.totalEstimatedAmount").value(7500000.00));
+	}
+
+	@Test
+	void rejectsPurchaseRequestDetailOwnedByAnotherRequester() throws Exception {
+		AppUser owner = createUser("api-detail-owner@example.com", RoleCode.REQUESTER);
+		AppUser anotherRequester = createUser("api-detail-another@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(owner.getId(), createCommand(item.getId()));
+		entityManager.flush();
+
+		mockMvc.perform(get("/api/purchase-requests/{requestId}", requestId)
+						.with(httpBasic(anotherRequester.getEmail(), PASSWORD)))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.success").value(false))
+				.andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
 	}
 
 	@Test

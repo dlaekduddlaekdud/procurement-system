@@ -1,12 +1,16 @@
 package com.dayoung.procurement.purchase.web;
 
 import com.dayoung.procurement.common.api.ApiResponse;
+import com.dayoung.procurement.purchase.application.PurchaseRequestDetail;
 import com.dayoung.procurement.purchase.application.PurchaseRequestService;
+import com.dayoung.procurement.purchase.application.PurchaseRequestSummary;
 import com.dayoung.procurement.security.AuthenticatedUser;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,6 +26,23 @@ public class PurchaseRequestController {
 
 	public PurchaseRequestController(PurchaseRequestService purchaseRequestService) {
 		this.purchaseRequestService = purchaseRequestService;
+	}
+
+	@GetMapping
+	@PreAuthorize("hasRole('REQUESTER')")
+	public ApiResponse<List<PurchaseRequestSummary>> findMine(
+			@AuthenticationPrincipal AuthenticatedUser user
+	) {
+		return ApiResponse.success(purchaseRequestService.findMine(user.getUserId()));
+	}
+
+	@GetMapping("/{requestId}")
+	@PreAuthorize("hasRole('REQUESTER')")
+	public ApiResponse<PurchaseRequestDetail> getMine(
+			@AuthenticationPrincipal AuthenticatedUser user,
+			@PathVariable Long requestId
+	) {
+		return ApiResponse.success(purchaseRequestService.getMine(requestId, user.getUserId()));
 	}
 
 	@PostMapping
