@@ -64,6 +64,14 @@ class PurchaseRequestStateTest {
 	}
 
 	@Test
+	void rejectsRemovingLineAfterSubmission() {
+		addLine();
+		request.submit(LocalDateTime.of(2026, 9, 2, 10, 0));
+
+		assertThrows(InvalidPurchaseRequestStateException.class, () -> request.removeLine(1L));
+	}
+
+	@Test
 	void approvesSubmittedRequest() {
 		addLine();
 		request.submit(LocalDateTime.of(2026, 9, 2, 10, 0));

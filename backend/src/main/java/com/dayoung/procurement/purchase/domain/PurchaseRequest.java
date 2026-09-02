@@ -3,6 +3,7 @@ package com.dayoung.procurement.purchase.domain;
 import com.dayoung.procurement.masterdata.domain.Department;
 import com.dayoung.procurement.masterdata.domain.Item;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateException;
+import com.dayoung.procurement.purchase.exception.PurchaseRequestLineNotFoundException;
 import com.dayoung.procurement.purchase.exception.SelfApprovalNotAllowedException;
 import com.dayoung.procurement.user.domain.AppUser;
 import jakarta.persistence.CascadeType;
@@ -124,9 +125,13 @@ public class PurchaseRequest {
 			String description
 	) {
 		requireStatus(PurchaseRequestStatus.DRAFT, "품목을 추가");
+		int nextLineNumber = lines.stream()
+				.mapToInt(PurchaseRequestLine::getLineNumber)
+				.max()
+				.orElse(0) + 1;
 		PurchaseRequestLine line = new PurchaseRequestLine(
 				this,
-				lines.size() + 1,
+				nextLineNumber,
 				item,
 				quantity,
 				unit,
@@ -136,6 +141,16 @@ public class PurchaseRequest {
 		);
 		lines.add(line);
 		return line;
+	}
+
+	public void removeLine(Long lineId) {
+		requireStatus(PurchaseRequestStatus.DRAFT, "품목을 삭제");
+		boolean removed = lines.removeIf(
+				line -> line.getId() != null && line.getId().equals(lineId)
+		);
+		if (!removed) {
+			throw new PurchaseRequestLineNotFoundException(id, lineId);
+		}
 	}
 
 	public void updateDetails(String title, String purpose, LocalDate neededDate) {

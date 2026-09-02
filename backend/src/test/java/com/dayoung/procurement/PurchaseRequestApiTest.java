@@ -2,6 +2,7 @@ package com.dayoung.procurement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -236,6 +237,73 @@ class PurchaseRequestApiTest {
 	}
 
 	@Test
+	void deletesLineFromDraftPurchaseRequestAsOwner() throws Exception {
+		AppUser requester = createUser("api-delete-line-requester@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		Long lineId = findFirstLineId(requestId);
+		entityManager.flush();
+
+		mockMvc.perform(delete("/api/purchase-requests/{requestId}/lines/{lineId}", requestId, lineId)
+						.with(httpBasic(requester.getEmail(), PASSWORD)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.success").value(true));
+
+		entityManager.flush();
+		entityManager.clear();
+		PurchaseRequest savedRequest = purchaseRequestRepository.findById(requestId).orElseThrow();
+		assertEquals(0, savedRequest.getLines().size());
+	}
+
+	@Test
+	void rejectsLineFromAnotherPurchaseRequestAtApiBoundary() throws Exception {
+		AppUser requester = createUser("api-delete-foreign-line@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		Long anotherRequestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		Long anotherLineId = findFirstLineId(anotherRequestId);
+		entityManager.flush();
+
+		mockMvc.perform(delete(
+						"/api/purchase-requests/{requestId}/lines/{lineId}",
+						requestId,
+						anotherLineId
+				)
+						.with(httpBasic(requester.getEmail(), PASSWORD)))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.error.code").value("PURCHASE_REQUEST_LINE_NOT_FOUND"));
+	}
+
+	@Test
+	void rejectsLineDeletionFromPurchaseRequestOwnedByAnotherRequesterAtApiBoundary() throws Exception {
+		AppUser owner = createUser("api-delete-line-owner@example.com", RoleCode.REQUESTER);
+		AppUser anotherRequester = createUser("api-delete-line-another@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(owner.getId(), createCommand(item.getId()));
+		Long lineId = findFirstLineId(requestId);
+		entityManager.flush();
+
+		mockMvc.perform(delete("/api/purchase-requests/{requestId}/lines/{lineId}", requestId, lineId)
+						.with(httpBasic(anotherRequester.getEmail(), PASSWORD)))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+	}
+
+	@Test
+	void rejectsLineDeletionFromSubmittedPurchaseRequestAtApiBoundary() throws Exception {
+		AppUser requester = createUser("api-delete-line-submitted@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = createAndSubmit(requester, item);
+		Long lineId = findFirstLineId(requestId);
+		entityManager.flush();
+
+		mockMvc.perform(delete("/api/purchase-requests/{requestId}/lines/{lineId}", requestId, lineId)
+						.with(httpBasic(requester.getEmail(), PASSWORD)))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.error.code").value("INVALID_PURCHASE_REQUEST_STATE"));
+	}
+
+	@Test
 	void rejectsInvalidPurchaseRequestInput() throws Exception {
 		AppUser requester = createUser("api-validation-requester@example.com", RoleCode.REQUESTER);
 		Item item = createItem();
@@ -310,6 +378,14 @@ class PurchaseRequestApiTest {
 				"EA",
 				new BigDecimal("2500000.00")
 		));
+	}
+
+	private Long findFirstLineId(Long requestId) {
+		return purchaseRequestRepository.findById(requestId)
+				.orElseThrow()
+				.getLines()
+				.getFirst()
+				.getId();
 	}
 
 	private CreatePurchaseRequestCommand createCommand(Long itemId) {

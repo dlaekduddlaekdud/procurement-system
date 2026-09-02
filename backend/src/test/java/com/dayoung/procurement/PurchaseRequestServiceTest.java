@@ -17,6 +17,7 @@ import com.dayoung.procurement.purchase.domain.PurchaseRequest;
 import com.dayoung.procurement.purchase.domain.PurchaseRequestStatus;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateException;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestAccessDeniedException;
+import com.dayoung.procurement.purchase.exception.PurchaseRequestLineNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseRoleRequiredException;
 import com.dayoung.procurement.purchase.exception.SelfApprovalNotAllowedException;
 import com.dayoung.procurement.purchase.repository.PurchaseRequestRepository;
@@ -185,6 +186,57 @@ class PurchaseRequestServiceTest {
 	}
 
 	@Test
+	void deletesLineFromDraftPurchaseRequestCreatedByRequester() {
+		AppUser requester = createUser("service-delete-line-requester@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		Long lineId = findFirstLineId(requestId);
+
+		purchaseRequestService.deleteLine(requestId, lineId, requester.getId());
+		entityManager.flush();
+		entityManager.clear();
+
+		PurchaseRequest savedRequest = purchaseRequestRepository.findById(requestId).orElseThrow();
+		assertEquals(0, savedRequest.getLines().size());
+	}
+
+	@Test
+	void rejectsLineFromAnotherPurchaseRequest() {
+		AppUser requester = createUser("service-delete-foreign-line@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		Long anotherRequestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		Long anotherLineId = findFirstLineId(anotherRequestId);
+
+		assertThrows(PurchaseRequestLineNotFoundException.class,
+				() -> purchaseRequestService.deleteLine(requestId, anotherLineId, requester.getId()));
+	}
+
+	@Test
+	void rejectsLineDeletionFromPurchaseRequestOwnedByAnotherRequester() {
+		AppUser owner = createUser("service-delete-line-owner@example.com", RoleCode.REQUESTER);
+		AppUser anotherRequester = createUser("service-delete-line-another@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(owner.getId(), createCommand(item.getId()));
+		Long lineId = findFirstLineId(requestId);
+
+		assertThrows(PurchaseRequestAccessDeniedException.class,
+				() -> purchaseRequestService.deleteLine(requestId, lineId, anotherRequester.getId()));
+	}
+
+	@Test
+	void rejectsLineDeletionFromSubmittedPurchaseRequest() {
+		AppUser requester = createUser("service-delete-line-submitted@example.com", RoleCode.REQUESTER);
+		Item item = createItem();
+		Long requestId = purchaseRequestService.create(requester.getId(), createCommand(item.getId()));
+		Long lineId = findFirstLineId(requestId);
+		purchaseRequestService.submit(requestId, requester.getId());
+
+		assertThrows(InvalidPurchaseRequestStateException.class,
+				() -> purchaseRequestService.deleteLine(requestId, lineId, requester.getId()));
+	}
+
+	@Test
 	void rejectsApprovalWithoutBuyerRole() {
 		AppUser requester = createUser("service-no-buyer@example.com", RoleCode.REQUESTER);
 		Item item = createItem();
@@ -242,6 +294,14 @@ class PurchaseRequestServiceTest {
 				"EA",
 				new BigDecimal("2500000.00")
 		));
+	}
+
+	private Long findFirstLineId(Long requestId) {
+		return purchaseRequestRepository.findById(requestId)
+				.orElseThrow()
+				.getLines()
+				.getFirst()
+				.getId();
 	}
 
 	private CreatePurchaseRequestCommand createCommand(Long itemId) {

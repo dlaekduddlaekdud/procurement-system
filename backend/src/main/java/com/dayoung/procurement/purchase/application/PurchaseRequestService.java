@@ -121,6 +121,15 @@ public class PurchaseRequestService {
 	}
 
 	@Transactional
+	public void deleteLine(@NotNull Long requestId, @NotNull Long lineId, @NotNull Long requesterId) {
+		AppUser requester = getActiveUser(requesterId);
+		requireRole(requesterId, RoleCode.REQUESTER);
+		PurchaseRequest request = getRequest(requestId);
+		validateOwner(request, requester.getId());
+		request.removeLine(lineId);
+	}
+
+	@Transactional
 	public void submit(Long requestId, Long requesterId) {
 		AppUser requester = getActiveUser(requesterId);
 		requireRole(requesterId, RoleCode.REQUESTER);

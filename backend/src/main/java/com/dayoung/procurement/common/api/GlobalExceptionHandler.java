@@ -4,6 +4,7 @@ import com.dayoung.procurement.purchase.exception.InactivePurchaseUserException;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateException;
 import com.dayoung.procurement.purchase.exception.PurchaseItemNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestAccessDeniedException;
+import com.dayoung.procurement.purchase.exception.PurchaseRequestLineNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseRoleRequiredException;
 import com.dayoung.procurement.purchase.exception.SelfApprovalNotAllowedException;
@@ -22,6 +23,13 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(PurchaseRequestNotFoundException.class)
 	public ResponseEntity<ApiResponse<Void>> handlePurchaseRequestNotFound(PurchaseRequestNotFoundException exception) {
 		return error(HttpStatus.NOT_FOUND, "PURCHASE_REQUEST_NOT_FOUND", exception.getMessage());
+	}
+
+	@ExceptionHandler(PurchaseRequestLineNotFoundException.class)
+	public ResponseEntity<ApiResponse<Void>> handlePurchaseRequestLineNotFound(
+			PurchaseRequestLineNotFoundException exception
+	) {
+		return error(HttpStatus.NOT_FOUND, "PURCHASE_REQUEST_LINE_NOT_FOUND", exception.getMessage());
 	}
 
 	@ExceptionHandler(PurchaseItemNotFoundException.class)
