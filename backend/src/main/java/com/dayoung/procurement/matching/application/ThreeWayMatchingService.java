@@ -7,6 +7,7 @@ import com.dayoung.procurement.purchase.exception.PurchaseOrderLineNotFoundExcep
 import com.dayoung.procurement.purchase.repository.PurchaseOrderLineRepository;
 import com.dayoung.procurement.receipt.domain.GoodsReceiptStatus;
 import com.dayoung.procurement.receipt.repository.GoodsReceiptLineRepository;
+import java.math.BigDecimal;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,20 +34,28 @@ public class ThreeWayMatchingService {
 				.orElseThrow(() -> new PurchaseOrderLineNotFoundException(purchaseOrderLineId));
 		return new MatchingLineTotals(
 				orderLine.getId(),
-				orderLine.getQuantity(),
-				goodsReceiptLineRepository.sumQuantityByPurchaseOrderLineIdAndStatus(
+				quantity(orderLine.getQuantity()),
+				quantity(goodsReceiptLineRepository.sumQuantityByPurchaseOrderLineIdAndStatus(
 						purchaseOrderLineId,
 						GoodsReceiptStatus.POSTED
-				),
-				invoiceLineRepository.sumQuantityByPurchaseOrderLineIdAndStatus(
+				)),
+				quantity(invoiceLineRepository.sumQuantityByPurchaseOrderLineIdAndStatus(
 						purchaseOrderLineId,
 						InvoiceStatus.RECEIVED
-				),
-				orderLine.getSupplyAmount(),
-				invoiceLineRepository.sumSupplyAmountByPurchaseOrderLineIdAndStatus(
+				)),
+				amount(orderLine.getSupplyAmount()),
+				amount(invoiceLineRepository.sumSupplyAmountByPurchaseOrderLineIdAndStatus(
 						purchaseOrderLineId,
 						InvoiceStatus.RECEIVED
-				)
+				))
 		);
+	}
+
+	private BigDecimal quantity(BigDecimal value) {
+		return value.setScale(3);
+	}
+
+	private BigDecimal amount(BigDecimal value) {
+		return value.setScale(2);
 	}
 }
