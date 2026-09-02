@@ -3,6 +3,7 @@ package com.dayoung.procurement.purchase.domain;
 import com.dayoung.procurement.masterdata.domain.Item;
 import com.dayoung.procurement.masterdata.domain.Vendor;
 import com.dayoung.procurement.masterdata.domain.Warehouse;
+import com.dayoung.procurement.purchase.exception.InvalidPurchaseOrderStateException;
 import com.dayoung.procurement.user.domain.AppUser;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -125,6 +126,13 @@ public class PurchaseOrder {
 		);
 		lines.add(line);
 		return line;
+	}
+
+	public void send() {
+		if (status != PurchaseOrderStatus.CREATED) {
+			throw new InvalidPurchaseOrderStateException(status, "발송");
+		}
+		this.status = PurchaseOrderStatus.SENT;
 	}
 
 	public Long getId() {

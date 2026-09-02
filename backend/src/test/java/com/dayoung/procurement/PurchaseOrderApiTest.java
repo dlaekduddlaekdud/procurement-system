@@ -16,8 +16,11 @@ import com.dayoung.procurement.masterdata.repository.VendorRepository;
 import com.dayoung.procurement.masterdata.repository.WarehouseRepository;
 import com.dayoung.procurement.purchase.application.CreatePurchaseRequestCommand;
 import com.dayoung.procurement.purchase.application.CreatePurchaseRequestLineCommand;
+import com.dayoung.procurement.purchase.application.CreatePurchaseOrderCommand;
+import com.dayoung.procurement.purchase.application.PurchaseOrderService;
 import com.dayoung.procurement.purchase.application.PurchaseRequestService;
 import com.dayoung.procurement.purchase.domain.PurchaseOrder;
+import com.dayoung.procurement.purchase.domain.PurchaseOrderStatus;
 import com.dayoung.procurement.purchase.repository.PurchaseOrderRepository;
 import com.dayoung.procurement.user.domain.AppUser;
 import com.dayoung.procurement.user.domain.Role;
@@ -56,6 +59,9 @@ class PurchaseOrderApiTest {
 
 	@Autowired
 	private PurchaseRequestService purchaseRequestService;
+
+	@Autowired
+	private PurchaseOrderService purchaseOrderService;
 
 	@Autowired
 	private PurchaseOrderRepository purchaseOrderRepository;
@@ -140,6 +146,61 @@ class PurchaseOrderApiTest {
 						.content(createOrderJson(vendor.getId(), warehouse.getId())))
 				.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.error.code").value("INVALID_PURCHASE_REQUEST_STATE"));
+	}
+
+	@Test
+	void sendsCreatedPurchaseOrderAsBuyer() throws Exception {
+		AppUser requester = createUser("order-send-api-requester@example.com", RoleCode.REQUESTER);
+		AppUser buyer = createUser("order-send-api-buyer@example.com", RoleCode.BUYER);
+		Long orderId = createPurchaseOrder(requester, buyer);
+		entityManager.flush();
+
+		mockMvc.perform(post("/api/purchase-orders/{orderId}/send", orderId)
+						.with(httpBasic(buyer.getEmail(), PASSWORD)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.success").value(true));
+
+		entityManager.flush();
+		entityManager.clear();
+		PurchaseOrder order = purchaseOrderRepository.findById(orderId).orElseThrow();
+		assertEquals(PurchaseOrderStatus.SENT, order.getStatus());
+	}
+
+	@Test
+	void rejectsSendingPurchaseOrderByRequesterAtApiBoundary() throws Exception {
+		AppUser requester = createUser("order-send-api-forbidden@example.com", RoleCode.REQUESTER);
+		entityManager.flush();
+
+		mockMvc.perform(post("/api/purchase-orders/{orderId}/send", 1L)
+						.with(httpBasic(requester.getEmail(), PASSWORD)))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+	}
+
+	@Test
+	void rejectsSendingPurchaseOrderByDifferentBuyerAtApiBoundary() throws Exception {
+		AppUser requester = createUser("order-send-owner-requester@example.com", RoleCode.REQUESTER);
+		AppUser buyer = createUser("order-send-owner-buyer@example.com", RoleCode.BUYER);
+		AppUser otherBuyer = createUser("order-send-other-buyer@example.com", RoleCode.BUYER);
+		Long orderId = createPurchaseOrder(requester, buyer);
+		entityManager.flush();
+
+		mockMvc.perform(post("/api/purchase-orders/{orderId}/send", orderId)
+						.with(httpBasic(otherBuyer.getEmail(), PASSWORD)))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+	}
+
+	private Long createPurchaseOrder(AppUser requester, AppUser buyer) {
+		Item item = createItem();
+		Vendor vendor = createVendor();
+		Warehouse warehouse = warehouseRepository.findByCode("WH-SEOUL").orElseThrow();
+		Long requestId = createApprovedRequest(requester, buyer, item);
+		return purchaseOrderService.createFromApprovedRequest(
+				requestId,
+				buyer.getId(),
+				new CreatePurchaseOrderCommand(vendor.getId(), warehouse.getId(), LocalDate.now().plusDays(14))
+		);
 	}
 
 	private Long createApprovedRequest(AppUser requester, AppUser buyer, Item item) {

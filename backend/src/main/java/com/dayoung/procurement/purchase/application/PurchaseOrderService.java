@@ -8,7 +8,9 @@ import com.dayoung.procurement.purchase.domain.PurchaseOrder;
 import com.dayoung.procurement.purchase.domain.PurchaseRequest;
 import com.dayoung.procurement.purchase.domain.PurchaseRequestLine;
 import com.dayoung.procurement.purchase.exception.InactivePurchaseUserException;
+import com.dayoung.procurement.purchase.exception.PurchaseOrderAccessDeniedException;
 import com.dayoung.procurement.purchase.exception.PurchaseOrderAlreadyExistsException;
+import com.dayoung.procurement.purchase.exception.PurchaseOrderNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseRoleRequiredException;
 import com.dayoung.procurement.purchase.exception.PurchaseVendorNotFoundException;
@@ -111,6 +113,17 @@ public class PurchaseOrderService {
 		}
 
 		return purchaseOrderRepository.save(order).getId();
+	}
+
+	@Transactional
+	public void send(@NotNull Long orderId, @NotNull Long buyerId) {
+		AppUser buyer = getActiveBuyer(buyerId);
+		PurchaseOrder order = purchaseOrderRepository.findById(orderId)
+				.orElseThrow(() -> new PurchaseOrderNotFoundException(orderId));
+		if (!order.getBuyer().getId().equals(buyer.getId())) {
+			throw new PurchaseOrderAccessDeniedException(orderId);
+		}
+		order.send();
 	}
 
 	private AppUser getActiveBuyer(Long buyerId) {

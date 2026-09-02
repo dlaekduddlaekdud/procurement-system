@@ -1,9 +1,12 @@
 package com.dayoung.procurement.common.api;
 
 import com.dayoung.procurement.purchase.exception.InactivePurchaseUserException;
+import com.dayoung.procurement.purchase.exception.InvalidPurchaseOrderStateException;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateException;
 import com.dayoung.procurement.purchase.exception.PurchaseItemNotFoundException;
+import com.dayoung.procurement.purchase.exception.PurchaseOrderAccessDeniedException;
 import com.dayoung.procurement.purchase.exception.PurchaseOrderAlreadyExistsException;
+import com.dayoung.procurement.purchase.exception.PurchaseOrderNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestAccessDeniedException;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestLineNotFoundException;
 import com.dayoung.procurement.purchase.exception.PurchaseRequestNotFoundException;
@@ -59,18 +62,31 @@ public class GlobalExceptionHandler {
 		return error(HttpStatus.CONFLICT, "PURCHASE_ORDER_ALREADY_EXISTS", exception.getMessage());
 	}
 
+	@ExceptionHandler(PurchaseOrderNotFoundException.class)
+	public ResponseEntity<ApiResponse<Void>> handlePurchaseOrderNotFound(PurchaseOrderNotFoundException exception) {
+		return error(HttpStatus.NOT_FOUND, "PURCHASE_ORDER_NOT_FOUND", exception.getMessage());
+	}
+
 	@ExceptionHandler(InactivePurchaseUserException.class)
 	public ResponseEntity<ApiResponse<Void>> handleInactivePurchaseUser(InactivePurchaseUserException exception) {
 		return error(HttpStatus.NOT_FOUND, "ACTIVE_USER_NOT_FOUND", exception.getMessage());
 	}
 
 	@ExceptionHandler({
+			PurchaseOrderAccessDeniedException.class,
 			PurchaseRequestAccessDeniedException.class,
 			PurchaseRoleRequiredException.class,
 			SelfApprovalNotAllowedException.class
 	})
 	public ResponseEntity<ApiResponse<Void>> handleForbidden(RuntimeException exception) {
 		return error(HttpStatus.FORBIDDEN, "FORBIDDEN", exception.getMessage());
+	}
+
+	@ExceptionHandler(InvalidPurchaseOrderStateException.class)
+	public ResponseEntity<ApiResponse<Void>> handleInvalidPurchaseOrderState(
+			InvalidPurchaseOrderStateException exception
+	) {
+		return error(HttpStatus.CONFLICT, "INVALID_PURCHASE_ORDER_STATE", exception.getMessage());
 	}
 
 	@ExceptionHandler(InvalidPurchaseRequestStateException.class)

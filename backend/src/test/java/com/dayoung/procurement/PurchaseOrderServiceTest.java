@@ -19,6 +19,8 @@ import com.dayoung.procurement.purchase.application.PurchaseRequestService;
 import com.dayoung.procurement.purchase.domain.PurchaseOrder;
 import com.dayoung.procurement.purchase.domain.PurchaseOrderStatus;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateException;
+import com.dayoung.procurement.purchase.exception.InvalidPurchaseOrderStateException;
+import com.dayoung.procurement.purchase.exception.PurchaseOrderAccessDeniedException;
 import com.dayoung.procurement.purchase.exception.PurchaseOrderAlreadyExistsException;
 import com.dayoung.procurement.purchase.repository.PurchaseOrderRepository;
 import com.dayoung.procurement.user.domain.AppUser;
@@ -142,6 +144,54 @@ class PurchaseOrderServiceTest {
 
 		assertThrows(PurchaseOrderAlreadyExistsException.class,
 				() -> purchaseOrderService.createFromApprovedRequest(requestId, buyer.getId(), command));
+	}
+
+	@Test
+	void sendsCreatedPurchaseOrder() {
+		AppUser requester = createUser("order-send-requester@example.com", RoleCode.REQUESTER);
+		AppUser buyer = createUser("order-send-buyer@example.com", RoleCode.BUYER);
+		Long orderId = createPurchaseOrder(requester, buyer);
+
+		purchaseOrderService.send(orderId, buyer.getId());
+		entityManager.flush();
+		entityManager.clear();
+
+		PurchaseOrder order = purchaseOrderRepository.findById(orderId).orElseThrow();
+		assertEquals(PurchaseOrderStatus.SENT, order.getStatus());
+	}
+
+	@Test
+	void rejectsSendingPurchaseOrderTwice() {
+		AppUser requester = createUser("order-resend-requester@example.com", RoleCode.REQUESTER);
+		AppUser buyer = createUser("order-resend-buyer@example.com", RoleCode.BUYER);
+		Long orderId = createPurchaseOrder(requester, buyer);
+		purchaseOrderService.send(orderId, buyer.getId());
+
+		assertThrows(InvalidPurchaseOrderStateException.class,
+				() -> purchaseOrderService.send(orderId, buyer.getId()));
+	}
+
+	@Test
+	void rejectsSendingPurchaseOrderByDifferentBuyer() {
+		AppUser requester = createUser("order-owner-requester@example.com", RoleCode.REQUESTER);
+		AppUser buyer = createUser("order-owner-buyer@example.com", RoleCode.BUYER);
+		AppUser otherBuyer = createUser("order-other-buyer@example.com", RoleCode.BUYER);
+		Long orderId = createPurchaseOrder(requester, buyer);
+
+		assertThrows(PurchaseOrderAccessDeniedException.class,
+				() -> purchaseOrderService.send(orderId, otherBuyer.getId()));
+	}
+
+	private Long createPurchaseOrder(AppUser requester, AppUser buyer) {
+		Item item = createItem();
+		Vendor vendor = createVendor();
+		Warehouse warehouse = warehouseRepository.findByCode("WH-SEOUL").orElseThrow();
+		Long requestId = createApprovedRequest(requester, buyer, item);
+		return purchaseOrderService.createFromApprovedRequest(
+				requestId,
+				buyer.getId(),
+				new CreatePurchaseOrderCommand(vendor.getId(), warehouse.getId(), LocalDate.now().plusDays(14))
+		);
 	}
 
 	private Long createApprovedRequest(AppUser requester, AppUser buyer, Item item) {
