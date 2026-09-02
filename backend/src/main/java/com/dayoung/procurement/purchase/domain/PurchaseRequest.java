@@ -2,6 +2,8 @@ package com.dayoung.procurement.purchase.domain;
 
 import com.dayoung.procurement.masterdata.domain.Department;
 import com.dayoung.procurement.masterdata.domain.Item;
+import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateException;
+import com.dayoung.procurement.purchase.exception.SelfApprovalNotAllowedException;
 import com.dayoung.procurement.user.domain.AppUser;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -72,6 +74,13 @@ public class PurchaseRequest {
 	@Column(name = "rejection_reason", length = 500)
 	private String rejectionReason;
 
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "rejected_by")
+	private AppUser rejectedBy;
+
+	@Column(name = "rejected_at")
+	private LocalDateTime rejectedAt;
+
 	@Version
 	@Column(nullable = false)
 	private long version;
@@ -114,6 +123,7 @@ public class PurchaseRequest {
 			BigDecimal estimatedAmount,
 			String description
 	) {
+		requireStatus(PurchaseRequestStatus.DRAFT, "품목을 추가");
 		PurchaseRequestLine line = new PurchaseRequestLine(
 				this,
 				lines.size() + 1,
@@ -126,6 +136,64 @@ public class PurchaseRequest {
 		);
 		lines.add(line);
 		return line;
+	}
+
+	public void submit(LocalDateTime submittedAt) {
+		requireStatus(PurchaseRequestStatus.DRAFT, "제출");
+		if (lines.isEmpty()) {
+			throw new InvalidPurchaseRequestStateException("품목이 없는 구매요청은 제출할 수 없습니다.");
+		}
+		if (submittedAt == null) {
+			throw new IllegalArgumentException("제출 시각은 필수입니다.");
+		}
+
+		this.status = PurchaseRequestStatus.SUBMITTED;
+		this.submittedAt = submittedAt;
+	}
+
+	public void approve(AppUser approver, LocalDateTime approvedAt) {
+		requireStatus(PurchaseRequestStatus.SUBMITTED, "승인");
+		validateDecisionMaker(approver);
+		if (approvedAt == null) {
+			throw new IllegalArgumentException("승인 시각은 필수입니다.");
+		}
+
+		this.status = PurchaseRequestStatus.APPROVED;
+		this.approvedBy = approver;
+		this.approvedAt = approvedAt;
+	}
+
+	public void reject(AppUser rejector, LocalDateTime rejectedAt, String reason) {
+		requireStatus(PurchaseRequestStatus.SUBMITTED, "거절");
+		validateDecisionMaker(rejector);
+		if (rejectedAt == null) {
+			throw new IllegalArgumentException("거절 시각은 필수입니다.");
+		}
+		if (reason == null || reason.isBlank()) {
+			throw new IllegalArgumentException("거절 사유는 필수입니다.");
+		}
+
+		this.status = PurchaseRequestStatus.REJECTED;
+		this.rejectedBy = rejector;
+		this.rejectedAt = rejectedAt;
+		this.rejectionReason = reason;
+	}
+
+	private void requireStatus(PurchaseRequestStatus requiredStatus, String action) {
+		if (status != requiredStatus) {
+			throw new InvalidPurchaseRequestStateException(status, action);
+		}
+	}
+
+	private void validateDecisionMaker(AppUser decisionMaker) {
+		if (decisionMaker == null) {
+			throw new IllegalArgumentException("처리자는 필수입니다.");
+		}
+		boolean sameInstance = requester == decisionMaker;
+		boolean sameId = requester.getId() != null && requester.getId().equals(decisionMaker.getId());
+		if (sameInstance || sameId) {
+			throw new SelfApprovalNotAllowedException();
+		}
 	}
 
 	public Long getId() {
@@ -178,6 +246,14 @@ public class PurchaseRequest {
 
 	public String getRejectionReason() {
 		return rejectionReason;
+	}
+
+	public AppUser getRejectedBy() {
+		return rejectedBy;
+	}
+
+	public LocalDateTime getRejectedAt() {
+		return rejectedAt;
 	}
 
 	public long getVersion() {
