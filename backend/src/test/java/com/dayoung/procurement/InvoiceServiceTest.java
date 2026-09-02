@@ -19,6 +19,8 @@ import com.dayoung.procurement.masterdata.repository.DepartmentRepository;
 import com.dayoung.procurement.masterdata.repository.ItemRepository;
 import com.dayoung.procurement.masterdata.repository.VendorRepository;
 import com.dayoung.procurement.masterdata.repository.WarehouseRepository;
+import com.dayoung.procurement.matching.application.MatchingLineTotals;
+import com.dayoung.procurement.matching.application.ThreeWayMatchingService;
 import com.dayoung.procurement.purchase.application.CreatePurchaseOrderCommand;
 import com.dayoung.procurement.purchase.application.CreatePurchaseRequestCommand;
 import com.dayoung.procurement.purchase.application.CreatePurchaseRequestLineCommand;
@@ -27,6 +29,9 @@ import com.dayoung.procurement.purchase.application.PurchaseRequestService;
 import com.dayoung.procurement.purchase.domain.PurchaseOrderLine;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseOrderStateException;
 import com.dayoung.procurement.purchase.repository.PurchaseOrderLineRepository;
+import com.dayoung.procurement.receipt.application.CreateGoodsReceiptCommand;
+import com.dayoung.procurement.receipt.application.CreateGoodsReceiptLineCommand;
+import com.dayoung.procurement.receipt.application.GoodsReceiptService;
 import com.dayoung.procurement.user.domain.AppUser;
 import com.dayoung.procurement.user.domain.Role;
 import com.dayoung.procurement.user.domain.RoleCode;
@@ -56,6 +61,12 @@ class InvoiceServiceTest {
 
 	@Autowired
 	private InvoiceLineRepository invoiceLineRepository;
+
+	@Autowired
+	private GoodsReceiptService goodsReceiptService;
+
+	@Autowired
+	private ThreeWayMatchingService threeWayMatchingService;
 
 	@Autowired
 	private PurchaseRequestService purchaseRequestService;
@@ -130,6 +141,40 @@ class InvoiceServiceTest {
 		);
 	}
 
+	@Test
+	void calculatesCumulativeReceiptAndInvoiceTotalsByPurchaseOrderLine() {
+		TestOrder testOrder = createOrder("matching-totals", true);
+		Long lineId = testOrder.lineIds().getFirst();
+		goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createReceiptCommand(lineId, "0.400")
+		);
+		goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createReceiptCommand(lineId, "0.600")
+		);
+		invoiceService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createSingleLineInvoiceCommand("INV-SPLIT-001", lineId, "0.300")
+		);
+		invoiceService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createSingleLineInvoiceCommand("INV-SPLIT-002", lineId, "0.700")
+		);
+
+		MatchingLineTotals totals = threeWayMatchingService.calculateTotals(lineId);
+
+		assertEquals(new BigDecimal("1.000"), totals.orderedQuantity());
+		assertEquals(new BigDecimal("1.000"), totals.receivedQuantity());
+		assertEquals(new BigDecimal("1.000"), totals.invoicedQuantity());
+		assertEquals(new BigDecimal("1000.00"), totals.orderedAmount());
+		assertEquals(new BigDecimal("1000.00"), totals.invoicedAmount());
+	}
+
 	private TestOrder createOrder(String testName, boolean send) {
 		String suffix = testName + "-" + System.nanoTime();
 		AppUser requester = createUser("requester-" + suffix + "@example.com", RoleCode.REQUESTER);
@@ -196,6 +241,30 @@ class InvoiceServiceTest {
 								new BigDecimal("15.00")
 						))
 						.toList()
+		);
+	}
+
+	private CreateInvoiceCommand createSingleLineInvoiceCommand(
+			String invoiceNumber,
+			Long lineId,
+			String quantity
+	) {
+		return new CreateInvoiceCommand(
+				invoiceNumber,
+				LocalDate.now(),
+				LocalDate.now(),
+				List.of(new CreateInvoiceLineCommand(
+						lineId,
+						new BigDecimal(quantity),
+						new BigDecimal("1000.00")
+				))
+		);
+	}
+
+	private CreateGoodsReceiptCommand createReceiptCommand(Long lineId, String quantity) {
+		return new CreateGoodsReceiptCommand(
+				LocalDate.now(),
+				List.of(new CreateGoodsReceiptLineCommand(lineId, new BigDecimal(quantity)))
 		);
 	}
 
