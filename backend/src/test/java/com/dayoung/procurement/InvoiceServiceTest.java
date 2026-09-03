@@ -2,6 +2,10 @@ package com.dayoung.procurement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 
 import com.dayoung.procurement.invoice.application.CreateInvoiceCommand;
 import com.dayoung.procurement.invoice.application.CreateInvoiceLineCommand;
@@ -48,10 +52,13 @@ import com.dayoung.procurement.user.repository.UserRoleRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Import(TestcontainersConfiguration.class)
@@ -71,7 +78,7 @@ class InvoiceServiceTest {
 	@Autowired
 	private GoodsReceiptService goodsReceiptService;
 
-	@Autowired
+	@MockitoSpyBean
 	private ThreeWayMatchingService threeWayMatchingService;
 
 	@Autowired
@@ -309,8 +316,58 @@ class InvoiceServiceTest {
 		assertEquals(2, accrualEntryRepository.findAllByPurchaseOrderLine_IdOrderById(lineId).size());
 	}
 
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void rollsBackInvoiceMatchResultAndSettlementWhenMatchingFails() {
+		TestOrder testOrder = createOrder("matching-rollback", true);
+		Long lineId = testOrder.lineIds().getFirst();
+		goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createReceiptCommand(lineId, "1.000")
+		);
+		long invoiceCountBefore = invoiceRepository.count();
+		long invoiceLineCountBefore = invoiceLineRepository.count();
+		AtomicBoolean matchingChangesCreated = new AtomicBoolean();
+
+		doAnswer(invocation -> {
+			invocation.callRealMethod();
+			boolean resultCreated = matchResultRepository.findByPurchaseOrderLine_Id(lineId).isPresent();
+			long settlementCount = accrualEntryRepository.findAllByPurchaseOrderLine_IdOrderById(lineId)
+					.stream()
+					.filter(entry -> entry.getEntryType() == AccrualEntryType.INVOICE_MATCH)
+					.count();
+			matchingChangesCreated.set(resultCreated && settlementCount == 1);
+			throw new IllegalStateException("대사 완료 후 실패 상황 재현");
+		}).when(threeWayMatchingService).matchAndSettle(
+				eq(lineId),
+				any(LocalDate.class),
+				any(AppUser.class)
+		);
+
+		assertThrows(
+				IllegalStateException.class,
+				() -> invoiceService.create(
+						testOrder.orderId(),
+						testOrder.buyerId(),
+						createSingleLineInvoiceCommand("INV-MATCH-ROLLBACK-001", lineId, "1.000")
+				)
+		);
+
+		assertTrue(matchingChangesCreated.get());
+		assertEquals(invoiceCountBefore, invoiceRepository.count());
+		assertEquals(invoiceLineCountBefore, invoiceLineRepository.count());
+		assertTrue(matchResultRepository.findByPurchaseOrderLine_Id(lineId).isEmpty());
+		assertEquals(
+				List.of(AccrualEntryType.GR_ACCRUAL),
+				accrualEntryRepository.findAllByPurchaseOrderLine_IdOrderById(lineId).stream()
+						.map(AccrualEntry::getEntryType)
+						.toList()
+		);
+	}
+
 	private TestOrder createOrder(String testName, boolean send) {
-		String suffix = testName + "-" + System.nanoTime();
+		String suffix = testName + "-" + Long.toUnsignedString(System.nanoTime(), 36);
 		AppUser requester = createUser("requester-" + suffix + "@example.com", RoleCode.REQUESTER);
 		AppUser buyer = createUser("buyer-" + suffix + "@example.com", RoleCode.BUYER);
 		Item firstItem = createItem("ITEM-FIRST-" + suffix);
