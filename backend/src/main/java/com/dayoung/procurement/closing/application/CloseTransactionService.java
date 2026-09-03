@@ -4,7 +4,6 @@ import com.dayoung.procurement.closing.domain.ClosePeriod;
 import com.dayoung.procurement.closing.domain.ClosePeriodStatus;
 import com.dayoung.procurement.closing.domain.CloseRun;
 import com.dayoung.procurement.closing.domain.CloseRunTriggerType;
-import com.dayoung.procurement.closing.repository.ClosePeriodRepository;
 import com.dayoung.procurement.closing.repository.CloseRunRepository;
 import com.dayoung.procurement.user.domain.AppUser;
 import com.dayoung.procurement.user.repository.AppUserRepository;
@@ -15,20 +14,20 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class CloseTransactionService {
 
-	private final ClosePeriodRepository closePeriodRepository;
+	private final ClosePeriodLockService closePeriodLockService;
 	private final CloseRunRepository closeRunRepository;
 	private final AppUserRepository appUserRepository;
 	private final CloseSuccessRecorder closeSuccessRecorder;
 	private final CloseSnapshotService closeSnapshotService;
 
 	public CloseTransactionService(
-			ClosePeriodRepository closePeriodRepository,
+			ClosePeriodLockService closePeriodLockService,
 			CloseRunRepository closeRunRepository,
 			AppUserRepository appUserRepository,
 			CloseSuccessRecorder closeSuccessRecorder,
 			CloseSnapshotService closeSnapshotService
 	) {
-		this.closePeriodRepository = closePeriodRepository;
+		this.closePeriodLockService = closePeriodLockService;
 		this.closeRunRepository = closeRunRepository;
 		this.appUserRepository = appUserRepository;
 		this.closeSuccessRecorder = closeSuccessRecorder;
@@ -47,8 +46,7 @@ public class CloseTransactionService {
 	}
 
 	private Long close(String period, CloseRunTriggerType triggerType, AppUser requestedBy) {
-		ClosePeriod closePeriod = closePeriodRepository.findByPeriodForUpdate(period)
-				.orElseGet(() -> closePeriodRepository.saveAndFlush(new ClosePeriod(period)));
+		ClosePeriod closePeriod = closePeriodLockService.getOrCreateForUpdate(period);
 		LocalDateTime startedAt = LocalDateTime.now();
 		CloseRun closeRun = new CloseRun(
 				closePeriod,

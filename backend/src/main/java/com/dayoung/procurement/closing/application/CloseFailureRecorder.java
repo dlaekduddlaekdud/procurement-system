@@ -3,7 +3,6 @@ package com.dayoung.procurement.closing.application;
 import com.dayoung.procurement.closing.domain.ClosePeriod;
 import com.dayoung.procurement.closing.domain.CloseRun;
 import com.dayoung.procurement.closing.domain.CloseRunTriggerType;
-import com.dayoung.procurement.closing.repository.ClosePeriodRepository;
 import com.dayoung.procurement.closing.repository.CloseRunRepository;
 import com.dayoung.procurement.user.domain.AppUser;
 import com.dayoung.procurement.user.repository.AppUserRepository;
@@ -17,16 +16,16 @@ public class CloseFailureRecorder {
 
 	private static final int MAX_FAILURE_MESSAGE_LENGTH = 1000;
 
-	private final ClosePeriodRepository closePeriodRepository;
+	private final ClosePeriodLockService closePeriodLockService;
 	private final CloseRunRepository closeRunRepository;
 	private final AppUserRepository appUserRepository;
 
 	public CloseFailureRecorder(
-			ClosePeriodRepository closePeriodRepository,
+			ClosePeriodLockService closePeriodLockService,
 			CloseRunRepository closeRunRepository,
 			AppUserRepository appUserRepository
 	) {
-		this.closePeriodRepository = closePeriodRepository;
+		this.closePeriodLockService = closePeriodLockService;
 		this.closeRunRepository = closeRunRepository;
 		this.appUserRepository = appUserRepository;
 	}
@@ -48,8 +47,7 @@ public class CloseFailureRecorder {
 			AppUser requestedBy,
 			RuntimeException exception
 	) {
-		ClosePeriod closePeriod = closePeriodRepository.findByPeriodForUpdate(period)
-				.orElseGet(() -> closePeriodRepository.saveAndFlush(new ClosePeriod(period)));
+		ClosePeriod closePeriod = closePeriodLockService.getOrCreateForUpdate(period);
 		LocalDateTime now = LocalDateTime.now();
 		CloseRun failedRun = new CloseRun(
 				closePeriod,
