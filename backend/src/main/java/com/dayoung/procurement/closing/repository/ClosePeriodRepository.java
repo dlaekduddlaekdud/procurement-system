@@ -23,4 +23,8 @@ public interface ClosePeriodRepository extends JpaRepository<ClosePeriod, Long> 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select closePeriod from ClosePeriod closePeriod where closePeriod.period = :period")
 	Optional<ClosePeriod> findByPeriodForUpdate(@Param("period") String period);
+
+	@Lock(LockModeType.PESSIMISTIC_READ)
+	@Query("select closePeriod from ClosePeriod closePeriod where closePeriod.period = :period")
+	Optional<ClosePeriod> findByPeriodForShare(@Param("period") String period);
 }
