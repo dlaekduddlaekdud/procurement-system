@@ -22,6 +22,49 @@
   → 마감 후 오류: REVERSAL + 정상 금액 CORRECTION
 ```
 
+## ERD
+
+```mermaid
+erDiagram
+    DEPARTMENT ||--o{ APP_USER : belongs_to
+    APP_USER ||--o{ USER_ROLE : has
+    ROLE ||--o{ USER_ROLE : grants
+
+    APP_USER ||--o{ PURCHASE_REQUEST : requests
+    DEPARTMENT ||--o{ PURCHASE_REQUEST : owns
+    PURCHASE_REQUEST ||--|{ PURCHASE_REQUEST_LINE : contains
+    ITEM ||--o{ PURCHASE_REQUEST_LINE : requested
+
+    PURCHASE_REQUEST ||--o| PURCHASE_ORDER : creates
+    VENDOR ||--o{ PURCHASE_ORDER : supplies
+    APP_USER ||--o{ PURCHASE_ORDER : manages
+    WAREHOUSE ||--o{ PURCHASE_ORDER : delivers_to
+    PURCHASE_ORDER ||--|{ PURCHASE_ORDER_LINE : contains
+    PURCHASE_REQUEST_LINE ||--|| PURCHASE_ORDER_LINE : converts_to
+    ITEM ||--o{ PURCHASE_ORDER_LINE : ordered
+
+    PURCHASE_ORDER ||--o{ GOODS_RECEIPT : receives
+    GOODS_RECEIPT ||--|{ GOODS_RECEIPT_LINE : contains
+    PURCHASE_ORDER_LINE ||--o{ GOODS_RECEIPT_LINE : received_against
+
+    PURCHASE_ORDER ||--o{ INVOICE : billed_for
+    INVOICE ||--|{ INVOICE_LINE : contains
+    PURCHASE_ORDER_LINE ||--o{ INVOICE_LINE : billed_against
+
+    PURCHASE_ORDER_LINE ||--o{ ACCRUAL_ENTRY : posts
+    GOODS_RECEIPT_LINE ||--o{ ACCRUAL_ENTRY : originates
+    ACCRUAL_ENTRY ||--o| ACCRUAL_ENTRY : reverses
+    PURCHASE_ORDER_LINE ||--o| MATCH_RESULT : matched
+
+    CLOSE_PERIOD ||--o{ CLOSE_RUN : attempts
+    CLOSE_RUN ||--o{ CLOSE_ACCRUAL_SNAPSHOT : freezes
+    CLOSE_RUN ||--o{ CLOSE_HOLD_SNAPSHOT : freezes
+    MATCH_RESULT ||--o{ CLOSE_HOLD_SNAPSHOT : snapshots
+    APP_USER ||--o{ AUDIT_LOG : acts
+```
+
+핵심 관계는 `purchase_order_line`을 중심으로 입고·송장·미착 원장·3-Way Matching을 연결하고, 마감 실행 단위로 원장 잔액과 미해결 HOLD를 스냅샷하는 구조입니다.
+
 ## 주요 설계
 
 ### 발주 라인 중심 문서 연결
@@ -127,6 +170,16 @@ Testcontainers MySQL 환경에서 서비스, API, 마이그레이션, 동시성 
 - `POST /api/close-periods/{period}/close`
 
 실행 후 Swagger UI는 `http://localhost:8081/swagger-ui.html`, OpenAPI JSON은 `http://localhost:8081/v3/api-docs`에서 확인할 수 있습니다.
+
+## 포트폴리오 캡처
+
+### 핵심 API 명세
+
+![Procurement System Swagger UI](docs/portfolio/swagger-ui.png)
+
+### 서비스 상태 확인
+
+![Actuator health API response](docs/portfolio/health-api.png)
 
 ## ADR
 
