@@ -33,16 +33,30 @@ public class CloseFailureRecorder {
 
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public void recordManualFailure(String period, Long adminId, RuntimeException exception) {
+		AppUser admin = appUserRepository.getReferenceById(adminId);
+		recordFailure(period, CloseRunTriggerType.MANUAL, admin, exception);
+	}
+
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void recordScheduledFailure(String period, RuntimeException exception) {
+		recordFailure(period, CloseRunTriggerType.SCHEDULED, null, exception);
+	}
+
+	private void recordFailure(
+			String period,
+			CloseRunTriggerType triggerType,
+			AppUser requestedBy,
+			RuntimeException exception
+	) {
 		ClosePeriod closePeriod = closePeriodRepository.findByPeriodForUpdate(period)
 				.orElseGet(() -> closePeriodRepository.saveAndFlush(new ClosePeriod(period)));
-		AppUser admin = appUserRepository.getReferenceById(adminId);
 		LocalDateTime now = LocalDateTime.now();
 		CloseRun failedRun = new CloseRun(
 				closePeriod,
 				closeRunRepository.findNextAttemptNo(closePeriod.getId()),
-				CloseRunTriggerType.MANUAL,
+				triggerType,
 				now,
-				admin
+				requestedBy
 		);
 		failedRun.fail(now, failureMessage(exception));
 		closeRunRepository.save(failedRun);

@@ -46,6 +46,17 @@ public class CloseService {
 		}
 	}
 
+	public Long closeAutomatically(
+			@NotBlank @Pattern(regexp = "\\d{6}") String period
+	) {
+		try {
+			return closeTransactionService.closeAutomatically(period);
+		} catch (RuntimeException exception) {
+			closeFailureRecorder.recordScheduledFailure(period, exception);
+			throw exception;
+		}
+	}
+
 	private AppUser getActiveAdmin(Long adminId) {
 		AppUser admin = appUserRepository.findById(adminId)
 				.filter(AppUser::isActive)

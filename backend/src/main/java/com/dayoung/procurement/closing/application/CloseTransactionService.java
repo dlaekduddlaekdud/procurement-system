@@ -37,16 +37,25 @@ public class CloseTransactionService {
 
 	@Transactional
 	public Long closeManually(String period, Long adminId) {
+		AppUser admin = appUserRepository.getReferenceById(adminId);
+		return close(period, CloseRunTriggerType.MANUAL, admin);
+	}
+
+	@Transactional
+	public Long closeAutomatically(String period) {
+		return close(period, CloseRunTriggerType.SCHEDULED, null);
+	}
+
+	private Long close(String period, CloseRunTriggerType triggerType, AppUser requestedBy) {
 		ClosePeriod closePeriod = closePeriodRepository.findByPeriodForUpdate(period)
 				.orElseGet(() -> closePeriodRepository.saveAndFlush(new ClosePeriod(period)));
-		AppUser admin = appUserRepository.getReferenceById(adminId);
 		LocalDateTime startedAt = LocalDateTime.now();
 		CloseRun closeRun = new CloseRun(
 				closePeriod,
 				closeRunRepository.findNextAttemptNo(closePeriod.getId()),
-				CloseRunTriggerType.MANUAL,
+				triggerType,
 				startedAt,
-				admin
+				requestedBy
 		);
 
 		if (closePeriod.getStatus() == ClosePeriodStatus.CLOSED) {

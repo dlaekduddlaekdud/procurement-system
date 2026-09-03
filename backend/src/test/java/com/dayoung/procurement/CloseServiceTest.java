@@ -2,6 +2,7 @@ package com.dayoung.procurement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -100,6 +101,20 @@ class CloseServiceTest {
 		assertEquals(CloseRunStatus.SKIPPED, skippedRun.getStatus());
 		assertEquals(List.of(CloseRunStatus.SUCCESS, CloseRunStatus.SKIPPED),
 				runs.stream().map(CloseRun::getStatus).toList());
+	}
+
+	@Test
+	void closesPeriodAutomaticallyWithoutRequester() {
+		Long closeRunId = closeService.closeAutomatically("202608");
+		entityManager.flush();
+		entityManager.clear();
+
+		ClosePeriod closePeriod = closePeriodRepository.findByPeriod("202608").orElseThrow();
+		CloseRun closeRun = closeRunRepository.findById(closeRunId).orElseThrow();
+		assertEquals(ClosePeriodStatus.CLOSED, closePeriod.getStatus());
+		assertEquals(CloseRunStatus.SUCCESS, closeRun.getStatus());
+		assertEquals(CloseRunTriggerType.SCHEDULED, closeRun.getTriggerType());
+		assertNull(closeRun.getRequestedBy());
 	}
 
 	@Test
