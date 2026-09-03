@@ -2,8 +2,12 @@ package com.dayoung.procurement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 
 import com.dayoung.procurement.closing.application.CloseService;
+import com.dayoung.procurement.closing.application.CloseSuccessRecorder;
 import com.dayoung.procurement.closing.domain.ClosePeriod;
 import com.dayoung.procurement.closing.domain.ClosePeriodStatus;
 import com.dayoung.procurement.closing.domain.CloseRun;
@@ -23,10 +27,13 @@ import com.dayoung.procurement.user.repository.UserRoleRepository;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Import(TestcontainersConfiguration.class)
@@ -42,6 +49,9 @@ class CloseServiceTest {
 
 	@Autowired
 	private CloseRunRepository closeRunRepository;
+
+	@MockitoSpyBean
+	private CloseSuccessRecorder closeSuccessRecorder;
 
 	@Autowired
 	private DepartmentRepository departmentRepository;
@@ -90,6 +100,46 @@ class CloseServiceTest {
 		assertEquals(CloseRunStatus.SKIPPED, skippedRun.getStatus());
 		assertEquals(List.of(CloseRunStatus.SUCCESS, CloseRunStatus.SKIPPED),
 				runs.stream().map(CloseRun::getStatus).toList());
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void recordsFailedRunAndIncreasesAttemptWhenRetrySucceeds() {
+		AppUser admin = createAdmin();
+		AtomicBoolean failFirstSuccess = new AtomicBoolean(true);
+		doAnswer(invocation -> {
+			Object saved = invocation.callRealMethod();
+			if (failFirstSuccess.compareAndSet(true, false)) {
+				throw new IllegalStateException("마감 결과 저장 실패 상황 재현");
+			}
+			return saved;
+		}).when(closeSuccessRecorder).complete(any(ClosePeriod.class), any(CloseRun.class));
+
+		assertThrows(
+				IllegalStateException.class,
+				() -> closeService.closeManually("202610", admin.getId())
+		);
+
+		ClosePeriod openPeriod = closePeriodRepository.findByPeriod("202610").orElseThrow();
+		List<CloseRun> failedRuns = closeRunRepository
+				.findAllByClosePeriod_IdOrderByAttemptNo(openPeriod.getId());
+		assertEquals(ClosePeriodStatus.OPEN, openPeriod.getStatus());
+		assertEquals(1, failedRuns.size());
+		assertEquals(1, failedRuns.getFirst().getAttemptNo());
+		assertEquals(CloseRunStatus.FAILED, failedRuns.getFirst().getStatus());
+		assertEquals("마감 결과 저장 실패 상황 재현", failedRuns.getFirst().getFailureMessage());
+
+		Long successRunId = closeService.closeManually("202610", admin.getId());
+
+		ClosePeriod closedPeriod = closePeriodRepository.findByPeriod("202610").orElseThrow();
+		List<CloseRun> retriedRuns = closeRunRepository
+				.findAllByClosePeriod_IdOrderByAttemptNo(closedPeriod.getId());
+		assertEquals(ClosePeriodStatus.CLOSED, closedPeriod.getStatus());
+		assertEquals(2, retriedRuns.size());
+		assertEquals(List.of(1, 2), retriedRuns.stream().map(CloseRun::getAttemptNo).toList());
+		assertEquals(List.of(CloseRunStatus.FAILED, CloseRunStatus.SUCCESS),
+				retriedRuns.stream().map(CloseRun::getStatus).toList());
+		assertEquals(successRunId, retriedRuns.getLast().getId());
 	}
 
 	private AppUser createAdmin() {
