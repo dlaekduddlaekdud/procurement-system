@@ -132,6 +132,25 @@ public class AccrualEntry {
 		return entry;
 	}
 
+	public static AccrualEntry reversal(
+			String entryNumber,
+			AccrualEntry original,
+			LocalDate postingDate,
+			AppUser createdBy
+	) {
+		AccrualEntry entry = new AccrualEntry();
+		entry.entryNumber = entryNumber;
+		entry.entryType = AccrualEntryType.REVERSAL;
+		entry.purchaseOrderLine = original.purchaseOrderLine;
+		entry.amount = original.amount.negate();
+		entry.currency = original.currency;
+		entry.postingDate = postingDate;
+		entry.period = postingDate.format(PERIOD_FORMAT);
+		entry.createdBy = createdBy;
+		entry.reversalOf = original;
+		return entry;
+	}
+
 	public Long getId() {
 		return id;
 	}

@@ -1,9 +1,13 @@
 package com.dayoung.procurement.common.api;
 
 import com.dayoung.procurement.closing.exception.ClosedPeriodException;
+import com.dayoung.procurement.closing.exception.OpenPeriodReversalNotAllowedException;
 import com.dayoung.procurement.invoice.exception.DuplicateInvoiceException;
 import com.dayoung.procurement.invoice.exception.InvalidInvoiceStateException;
 import com.dayoung.procurement.invoice.exception.InvoiceNotFoundException;
+import com.dayoung.procurement.ledger.exception.AccrualEntryNotFoundException;
+import com.dayoung.procurement.ledger.exception.DuplicateAccrualReversalException;
+import com.dayoung.procurement.ledger.exception.InvalidAccrualReversalTargetException;
 import com.dayoung.procurement.purchase.exception.InactivePurchaseUserException;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseOrderStateException;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateException;
@@ -38,6 +42,26 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(ClosedPeriodException.class)
 	public ResponseEntity<ApiResponse<Void>> handleClosedPeriod(ClosedPeriodException exception) {
 		return error(HttpStatus.CONFLICT, "CLOSED_PERIOD", exception.getMessage());
+	}
+
+	@ExceptionHandler(OpenPeriodReversalNotAllowedException.class)
+	public ResponseEntity<ApiResponse<Void>> handleOpenPeriodReversalNotAllowed(
+			OpenPeriodReversalNotAllowedException exception
+	) {
+		return error(HttpStatus.CONFLICT, "OPEN_PERIOD_REVERSAL_NOT_ALLOWED", exception.getMessage());
+	}
+
+	@ExceptionHandler(AccrualEntryNotFoundException.class)
+	public ResponseEntity<ApiResponse<Void>> handleAccrualEntryNotFound(AccrualEntryNotFoundException exception) {
+		return error(HttpStatus.NOT_FOUND, "ACCRUAL_ENTRY_NOT_FOUND", exception.getMessage());
+	}
+
+	@ExceptionHandler({
+			DuplicateAccrualReversalException.class,
+			InvalidAccrualReversalTargetException.class
+	})
+	public ResponseEntity<ApiResponse<Void>> handleAccrualReversalConflict(RuntimeException exception) {
+		return error(HttpStatus.CONFLICT, "ACCRUAL_REVERSAL_CONFLICT", exception.getMessage());
 	}
 
 	@ExceptionHandler(DuplicateInvoiceException.class)
