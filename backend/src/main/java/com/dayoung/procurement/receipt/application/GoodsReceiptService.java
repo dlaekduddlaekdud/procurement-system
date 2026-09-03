@@ -2,6 +2,7 @@ package com.dayoung.procurement.receipt.application;
 
 import com.dayoung.procurement.closing.application.ClosePeriodService;
 import com.dayoung.procurement.ledger.application.AccrualEntryService;
+import com.dayoung.procurement.matching.application.ThreeWayMatchingService;
 import com.dayoung.procurement.purchase.domain.PurchaseOrder;
 import com.dayoung.procurement.purchase.domain.PurchaseOrderLine;
 import com.dayoung.procurement.purchase.exception.InactivePurchaseUserException;
@@ -46,6 +47,7 @@ public class GoodsReceiptService {
 	private final GoodsReceiptNumberGenerator numberGenerator;
 	private final AccrualEntryService accrualEntryService;
 	private final ClosePeriodService closePeriodService;
+	private final ThreeWayMatchingService matchingService;
 
 	public GoodsReceiptService(
 			PurchaseOrderRepository purchaseOrderRepository,
@@ -55,7 +57,8 @@ public class GoodsReceiptService {
 			UserRoleRepository userRoleRepository,
 			GoodsReceiptNumberGenerator numberGenerator,
 			AccrualEntryService accrualEntryService,
-			ClosePeriodService closePeriodService
+			ClosePeriodService closePeriodService,
+			ThreeWayMatchingService matchingService
 	) {
 		this.purchaseOrderRepository = purchaseOrderRepository;
 		this.goodsReceiptRepository = goodsReceiptRepository;
@@ -65,6 +68,7 @@ public class GoodsReceiptService {
 		this.numberGenerator = numberGenerator;
 		this.accrualEntryService = accrualEntryService;
 		this.closePeriodService = closePeriodService;
+		this.matchingService = matchingService;
 	}
 
 	@Transactional
@@ -119,6 +123,11 @@ public class GoodsReceiptService {
 		order.applyReceiptStatus(fullyReceived);
 		Long receiptId = goodsReceiptRepository.save(receipt).getId();
 		accrualEntryService.createForGoodsReceipt(receiptId);
+		receipt.getLines().forEach(line -> matchingService.rematchIfEvaluated(
+				line.getPurchaseOrderLine().getId(),
+				receipt.getPostingDate(),
+				buyer
+		));
 		return receiptId;
 	}
 

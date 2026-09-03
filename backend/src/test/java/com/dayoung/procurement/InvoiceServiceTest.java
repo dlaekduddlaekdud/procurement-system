@@ -188,7 +188,7 @@ class InvoiceServiceTest {
 	}
 
 	@Test
-	void storesCurrentHoldAndUpdatesSameResultWhenHoldIsResolved() {
+	void automaticallyRematchesAndSettlesHoldWhenAdditionalReceiptResolvesIt() {
 		TestOrder testOrder = createOrder("matching-result", true);
 		Long lineId = testOrder.lineIds().getFirst();
 		goodsReceiptService.create(
@@ -218,13 +218,67 @@ class InvoiceServiceTest {
 				testOrder.buyerId(),
 				createReceiptCommand(lineId, "0.200")
 		);
-		Long resolvedResultId = threeWayMatchingService.evaluateAndSave(lineId);
-		MatchResult resolved = matchResultRepository.findById(resolvedResultId).orElseThrow();
+		MatchResult resolved = matchResultRepository.findById(resultId).orElseThrow();
+		List<AccrualEntry> entries = accrualEntryRepository.findAllByPurchaseOrderLine_IdOrderById(lineId);
 
-		assertEquals(resultId, resolvedResultId);
 		assertEquals(MatchingStatus.MATCHED, resolved.getStatus());
 		assertEquals(new BigDecimal("1.000"), resolved.getReceivedQuantity());
 		assertEquals(1, matchResultRepository.count());
+		assertEquals(3, entries.size());
+		assertEquals(
+				List.of(
+						AccrualEntryType.GR_ACCRUAL,
+						AccrualEntryType.GR_ACCRUAL,
+						AccrualEntryType.INVOICE_MATCH
+				),
+				entries.stream().map(AccrualEntry::getEntryType).toList()
+		);
+		assertEquals(new BigDecimal("-1000.00"), entries.getLast().getAmount());
+	}
+
+	@Test
+	void settlesOnlyNewAmountAfterPreviousPartialSettlement() {
+		TestOrder testOrder = createOrder("matching-additional-entry", true);
+		Long lineId = testOrder.lineIds().getFirst();
+		goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createReceiptCommand(lineId, "0.990")
+		);
+		invoiceService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createSingleLineInvoiceCommand("INV-MATCH-PARTIAL-001", lineId, "0.990")
+		);
+
+		goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createReceiptCommand(lineId, "0.010")
+		);
+		assertEquals(
+				MatchingStatus.HOLD_QUANTITY,
+				matchResultRepository.findByPurchaseOrderLine_Id(lineId).orElseThrow().getStatus()
+		);
+
+		invoiceService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createSingleLineInvoiceCommand("INV-MATCH-PARTIAL-002", lineId, "0.010")
+		);
+		AppUser buyer = appUserRepository.findById(testOrder.buyerId()).orElseThrow();
+		threeWayMatchingService.matchAndSettle(lineId, LocalDate.now(), buyer);
+
+		List<AccrualEntry> matchingEntries = accrualEntryRepository
+				.findAllByPurchaseOrderLine_IdOrderById(lineId)
+				.stream()
+				.filter(entry -> entry.getEntryType() == AccrualEntryType.INVOICE_MATCH)
+				.toList();
+		assertEquals(MatchingStatus.MATCHED,
+				matchResultRepository.findByPurchaseOrderLine_Id(lineId).orElseThrow().getStatus());
+		assertEquals(2, matchingEntries.size());
+		assertEquals(new BigDecimal("-990.00"), matchingEntries.getFirst().getAmount());
+		assertEquals(new BigDecimal("-10.00"), matchingEntries.getLast().getAmount());
 	}
 
 	@Test

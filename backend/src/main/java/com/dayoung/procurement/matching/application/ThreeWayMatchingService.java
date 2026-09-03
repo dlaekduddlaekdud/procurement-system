@@ -69,6 +69,14 @@ public class ThreeWayMatchingService {
 		return result.getId();
 	}
 
+	@Transactional
+	public void rematchIfEvaluated(Long purchaseOrderLineId, LocalDate postingDate, AppUser createdBy) {
+		if (matchResultRepository.findByPurchaseOrderLine_Id(purchaseOrderLineId).isEmpty()) {
+			return;
+		}
+		matchAndSettle(purchaseOrderLineId, postingDate, createdBy);
+	}
+
 	private MatchResult evaluate(Long purchaseOrderLineId) {
 		PurchaseOrderLine orderLine = purchaseOrderLineRepository.findById(purchaseOrderLineId)
 				.orElseThrow(() -> new PurchaseOrderLineNotFoundException(purchaseOrderLineId));
