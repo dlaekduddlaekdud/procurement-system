@@ -26,6 +26,11 @@ import com.dayoung.procurement.purchase.domain.PurchaseOrderLine;
 import com.dayoung.procurement.purchase.domain.PurchaseOrderStatus;
 import com.dayoung.procurement.purchase.repository.PurchaseOrderLineRepository;
 import com.dayoung.procurement.purchase.repository.PurchaseOrderRepository;
+import com.dayoung.procurement.receipt.application.CreateGoodsReceiptCommand;
+import com.dayoung.procurement.receipt.application.CreateGoodsReceiptLineCommand;
+import com.dayoung.procurement.receipt.application.GoodsReceiptService;
+import com.dayoung.procurement.receipt.domain.GoodsReceiptStatus;
+import com.dayoung.procurement.receipt.repository.GoodsReceiptRepository;
 import com.dayoung.procurement.user.domain.AppUser;
 import com.dayoung.procurement.user.domain.Role;
 import com.dayoung.procurement.user.domain.RoleCode;
@@ -69,6 +74,12 @@ class GoodsReceiptApiTest {
 
 	@Autowired
 	private PurchaseOrderService purchaseOrderService;
+
+	@Autowired
+	private GoodsReceiptService goodsReceiptService;
+
+	@Autowired
+	private GoodsReceiptRepository goodsReceiptRepository;
 
 	@Autowired
 	private PurchaseOrderRepository purchaseOrderRepository;
@@ -165,6 +176,39 @@ class GoodsReceiptApiTest {
 				.andExpect(jsonPath("$.error.code").value("CLOSED_PERIOD"));
 	}
 
+	@Test
+	void cancelsGoodsReceiptAsBuyer() throws Exception {
+		TestOrder testOrder = createSentOrder();
+		Long receiptId = goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				new CreateGoodsReceiptCommand(
+						LocalDate.now(),
+						List.of(new CreateGoodsReceiptLineCommand(
+								testOrder.lineId(),
+								new BigDecimal("6.000")
+						))
+				)
+		);
+		entityManager.flush();
+
+		mockMvc.perform(post(
+						"/api/purchase-orders/{orderId}/goods-receipts/{receiptId}/cancel",
+						testOrder.orderId(),
+						receiptId
+				)
+				.with(httpBasic(testOrder.buyerEmail(), PASSWORD))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(cancelJson()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.success").value(true));
+
+		entityManager.flush();
+		entityManager.clear();
+		assertEquals(GoodsReceiptStatus.CANCELLED,
+				goodsReceiptRepository.findById(receiptId).orElseThrow().getStatus());
+	}
+
 	private TestOrder createSentOrder() {
 		String suffix = String.valueOf(System.nanoTime());
 		AppUser requester = createUser("receipt-api-requester-" + suffix + "@example.com", RoleCode.REQUESTER);
@@ -207,7 +251,7 @@ class GoodsReceiptApiTest {
 		PurchaseOrderLine line = purchaseOrderLineRepository
 				.findAllByPurchaseOrder_IdOrderByLineNumber(orderId)
 				.getFirst();
-		return new TestOrder(orderId, line.getId(), buyer.getEmail());
+		return new TestOrder(orderId, line.getId(), buyer.getId(), buyer.getEmail());
 	}
 
 	private AppUser createUser(String email, RoleCode roleCode) {
@@ -241,6 +285,15 @@ class GoodsReceiptApiTest {
 				""".formatted(postingDate, lineId, quantity);
 	}
 
-	private record TestOrder(Long orderId, Long lineId, String buyerEmail) {
+	private String cancelJson() {
+		return """
+				{
+				  "postingDate": "%s",
+				  "reason": "입고 API 취소 테스트"
+				}
+				""".formatted(LocalDate.now());
+	}
+
+	private record TestOrder(Long orderId, Long lineId, Long buyerId, String buyerEmail) {
 	}
 }
