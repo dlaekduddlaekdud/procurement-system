@@ -35,4 +35,16 @@ public class LedgerCorrectionController {
 		Long reversalId = ledgerCorrectionService.reverse(entryId, user.getUserId(), request.toCommand());
 		return ApiResponse.success(new CreatedAccrualEntryResponse(reversalId));
 	}
+
+	@PostMapping("/{reversalId}/repost")
+	@ResponseStatus(HttpStatus.CREATED)
+	@PreAuthorize("hasRole('ADMIN')")
+	public ApiResponse<CreatedAccrualEntryResponse> repost(
+			@AuthenticationPrincipal AuthenticatedUser user,
+			@PathVariable Long reversalId,
+			@Valid @RequestBody RepostAccrualEntryRequest request
+	) {
+		Long correctionId = ledgerCorrectionService.repost(reversalId, user.getUserId(), request.toCommand());
+		return ApiResponse.success(new CreatedAccrualEntryResponse(correctionId));
+	}
 }

@@ -4,5 +4,6 @@ public enum AccrualEntryType {
 	GR_ACCRUAL,
 	INVOICE_MATCH,
 	CANCEL_OFFSET,
-	REVERSAL
+	REVERSAL,
+	CORRECTION
 }

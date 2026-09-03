@@ -69,6 +69,10 @@ public class AccrualEntry {
 	@JoinColumn(name = "reversal_of_id")
 	private AccrualEntry reversalOf;
 
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "reposting_of_id")
+	private AccrualEntry repostingOf;
+
 	@Column(name = "created_at", nullable = false, insertable = false, updatable = false)
 	private LocalDateTime createdAt;
 
@@ -151,6 +155,29 @@ public class AccrualEntry {
 		return entry;
 	}
 
+	public static AccrualEntry correction(
+			String entryNumber,
+			AccrualEntry reversal,
+			BigDecimal amount,
+			LocalDate postingDate,
+			AppUser createdBy
+	) {
+		if (reversal.entryType != AccrualEntryType.REVERSAL) {
+			throw new IllegalArgumentException("역분개 원장만 재기표할 수 있습니다.");
+		}
+		AccrualEntry entry = new AccrualEntry();
+		entry.entryNumber = entryNumber;
+		entry.entryType = AccrualEntryType.CORRECTION;
+		entry.purchaseOrderLine = reversal.purchaseOrderLine;
+		entry.amount = amount;
+		entry.currency = reversal.currency;
+		entry.postingDate = postingDate;
+		entry.period = postingDate.format(PERIOD_FORMAT);
+		entry.createdBy = createdBy;
+		entry.repostingOf = reversal;
+		return entry;
+	}
+
 	public Long getId() {
 		return id;
 	}
@@ -197,6 +224,10 @@ public class AccrualEntry {
 
 	public AccrualEntry getReversalOf() {
 		return reversalOf;
+	}
+
+	public AccrualEntry getRepostingOf() {
+		return repostingOf;
 	}
 
 	public LocalDateTime getCreatedAt() {

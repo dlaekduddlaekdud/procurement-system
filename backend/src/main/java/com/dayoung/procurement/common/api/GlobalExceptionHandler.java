@@ -7,7 +7,9 @@ import com.dayoung.procurement.invoice.exception.InvalidInvoiceStateException;
 import com.dayoung.procurement.invoice.exception.InvoiceNotFoundException;
 import com.dayoung.procurement.ledger.exception.AccrualEntryNotFoundException;
 import com.dayoung.procurement.ledger.exception.DuplicateAccrualReversalException;
+import com.dayoung.procurement.ledger.exception.DuplicateAccrualRepostingException;
 import com.dayoung.procurement.ledger.exception.InvalidAccrualReversalTargetException;
+import com.dayoung.procurement.ledger.exception.InvalidAccrualRepostingTargetException;
 import com.dayoung.procurement.purchase.exception.InactivePurchaseUserException;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseOrderStateException;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateException;
@@ -58,7 +60,9 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler({
 			DuplicateAccrualReversalException.class,
-			InvalidAccrualReversalTargetException.class
+			InvalidAccrualReversalTargetException.class,
+			DuplicateAccrualRepostingException.class,
+			InvalidAccrualRepostingTargetException.class
 	})
 	public ResponseEntity<ApiResponse<Void>> handleAccrualReversalConflict(RuntimeException exception) {
 		return error(HttpStatus.CONFLICT, "ACCRUAL_REVERSAL_CONFLICT", exception.getMessage());

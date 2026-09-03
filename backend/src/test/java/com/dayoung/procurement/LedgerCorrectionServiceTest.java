@@ -7,10 +7,13 @@ import com.dayoung.procurement.closing.domain.ClosePeriod;
 import com.dayoung.procurement.closing.exception.OpenPeriodReversalNotAllowedException;
 import com.dayoung.procurement.closing.repository.ClosePeriodRepository;
 import com.dayoung.procurement.ledger.application.LedgerCorrectionService;
+import com.dayoung.procurement.ledger.application.RepostAccrualEntryCommand;
 import com.dayoung.procurement.ledger.application.ReverseAccrualEntryCommand;
 import com.dayoung.procurement.ledger.domain.AccrualEntry;
 import com.dayoung.procurement.ledger.domain.AccrualEntryType;
 import com.dayoung.procurement.ledger.exception.DuplicateAccrualReversalException;
+import com.dayoung.procurement.ledger.exception.DuplicateAccrualRepostingException;
+import com.dayoung.procurement.ledger.exception.InvalidAccrualRepostingTargetException;
 import com.dayoung.procurement.ledger.repository.AccrualEntryRepository;
 import com.dayoung.procurement.masterdata.domain.Department;
 import com.dayoung.procurement.masterdata.domain.Item;
@@ -140,6 +143,50 @@ class LedgerCorrectionServiceTest {
 				scenario.original().getId(),
 				scenario.buyerId(),
 				new ReverseAccrualEntryCommand(LocalDate.now())
+		));
+	}
+
+	@Test
+	void repostsCorrectedAmountWithOriginalSignAndRejectsDuplicate() {
+		ReversalScenario scenario = createScenario(LocalDate.of(2002, 4, 15));
+		close(scenario.original().getPostingDate());
+		AppUser admin = createUser("reposting-admin", RoleCode.ADMIN);
+		Long reversalId = ledgerCorrectionService.reverse(
+				scenario.original().getId(),
+				admin.getId(),
+				new ReverseAccrualEntryCommand(LocalDate.now())
+		);
+		RepostAccrualEntryCommand command = new RepostAccrualEntryCommand(
+				new BigDecimal("4000.00"),
+				LocalDate.now()
+		);
+
+		Long correctionId = ledgerCorrectionService.repost(reversalId, admin.getId(), command);
+
+		List<AccrualEntry> entries = accrualEntryRepository
+				.findAllByPurchaseOrderLine_IdOrderById(scenario.lineId());
+		assertEquals(List.of(
+				AccrualEntryType.GR_ACCRUAL,
+				AccrualEntryType.REVERSAL,
+				AccrualEntryType.CORRECTION
+		), entries.stream().map(AccrualEntry::getEntryType).toList());
+		assertEquals(new BigDecimal("4000.00"), entries.getLast().getAmount());
+		assertEquals(reversalId, entries.getLast().getRepostingOf().getId());
+		assertEquals(correctionId, entries.getLast().getId());
+
+		assertThrows(DuplicateAccrualRepostingException.class, () ->
+				ledgerCorrectionService.repost(reversalId, admin.getId(), command));
+	}
+
+	@Test
+	void rejectsRepostingForOriginalEntry() {
+		ReversalScenario scenario = createScenario(LocalDate.now());
+		AppUser admin = createUser("invalid-reposting-admin", RoleCode.ADMIN);
+
+		assertThrows(InvalidAccrualRepostingTargetException.class, () -> ledgerCorrectionService.repost(
+				scenario.original().getId(),
+				admin.getId(),
+				new RepostAccrualEntryCommand(new BigDecimal("4000.00"), LocalDate.now())
 		));
 	}
 

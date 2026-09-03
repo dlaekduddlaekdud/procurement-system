@@ -5,7 +5,9 @@ import com.dayoung.procurement.ledger.domain.AccrualEntry;
 import com.dayoung.procurement.ledger.domain.AccrualEntryType;
 import com.dayoung.procurement.ledger.exception.AccrualEntryNotFoundException;
 import com.dayoung.procurement.ledger.exception.DuplicateAccrualReversalException;
+import com.dayoung.procurement.ledger.exception.DuplicateAccrualRepostingException;
 import com.dayoung.procurement.ledger.exception.InvalidAccrualReversalTargetException;
+import com.dayoung.procurement.ledger.exception.InvalidAccrualRepostingTargetException;
 import com.dayoung.procurement.ledger.repository.AccrualEntryRepository;
 import com.dayoung.procurement.purchase.exception.InactivePurchaseUserException;
 import com.dayoung.procurement.purchase.exception.PurchaseRoleRequiredException;
@@ -15,6 +17,7 @@ import com.dayoung.procurement.user.repository.AppUserRepository;
 import com.dayoung.procurement.user.repository.UserRoleRepository;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import java.math.BigDecimal;
 import java.util.Locale;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -66,6 +69,35 @@ public class LedgerCorrectionService {
 				admin
 		);
 		return accrualEntryRepository.save(reversal).getId();
+	}
+
+	@Transactional
+	public Long repost(
+			@NotNull Long reversalId,
+			@NotNull Long adminId,
+			@NotNull @Valid RepostAccrualEntryCommand command
+	) {
+		AppUser admin = getActiveAdmin(adminId);
+		AccrualEntry reversal = accrualEntryRepository.findByIdForUpdate(reversalId)
+				.orElseThrow(() -> new AccrualEntryNotFoundException(reversalId));
+		if (reversal.getEntryType() != AccrualEntryType.REVERSAL) {
+			throw new InvalidAccrualRepostingTargetException(reversalId);
+		}
+		closePeriodService.requireOpen(command.postingDate());
+		if (accrualEntryRepository.existsByRepostingOf_Id(reversalId)) {
+			throw new DuplicateAccrualRepostingException(reversalId);
+		}
+
+		BigDecimal originalAmount = reversal.getReversalOf().getAmount();
+		BigDecimal correctedAmount = command.amount().multiply(BigDecimal.valueOf(originalAmount.signum()));
+		AccrualEntry correction = AccrualEntry.correction(
+				generateEntryNumber(),
+				reversal,
+				correctedAmount,
+				command.postingDate(),
+				admin
+		);
+		return accrualEntryRepository.save(correction).getId();
 	}
 
 	private void validateOriginalEntry(AccrualEntry entry) {
