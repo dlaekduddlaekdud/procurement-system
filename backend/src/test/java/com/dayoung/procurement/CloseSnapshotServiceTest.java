@@ -1,12 +1,23 @@
 package com.dayoung.procurement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 
 import com.dayoung.procurement.closing.application.CloseService;
+import com.dayoung.procurement.closing.application.CloseSuccessRecorder;
 import com.dayoung.procurement.closing.domain.CloseAccrualSnapshot;
 import com.dayoung.procurement.closing.domain.CloseHoldSnapshot;
+import com.dayoung.procurement.closing.domain.ClosePeriod;
+import com.dayoung.procurement.closing.domain.ClosePeriodStatus;
+import com.dayoung.procurement.closing.domain.CloseRun;
+import com.dayoung.procurement.closing.domain.CloseRunStatus;
 import com.dayoung.procurement.closing.repository.CloseAccrualSnapshotRepository;
 import com.dayoung.procurement.closing.repository.CloseHoldSnapshotRepository;
+import com.dayoung.procurement.closing.repository.ClosePeriodRepository;
+import com.dayoung.procurement.closing.repository.CloseRunRepository;
 import com.dayoung.procurement.invoice.application.CreateInvoiceCommand;
 import com.dayoung.procurement.invoice.application.CreateInvoiceLineCommand;
 import com.dayoung.procurement.invoice.application.InvoiceService;
@@ -41,10 +52,13 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Import(TestcontainersConfiguration.class)
@@ -72,6 +86,15 @@ class CloseSnapshotServiceTest {
 
 	@Autowired
 	private CloseHoldSnapshotRepository holdSnapshotRepository;
+
+	@Autowired
+	private ClosePeriodRepository closePeriodRepository;
+
+	@Autowired
+	private CloseRunRepository closeRunRepository;
+
+	@MockitoSpyBean
+	private CloseSuccessRecorder closeSuccessRecorder;
 
 	@Autowired
 	private PurchaseOrderLineRepository purchaseOrderLineRepository;
@@ -102,6 +125,83 @@ class CloseSnapshotServiceTest {
 
 	@Test
 	void savesOutstandingAccrualAndUnresolvedHoldAtClosing() {
+		SnapshotScenario scenario = createHoldScenario();
+
+		Long closeRunId = closeService.closeManually(scenario.period(), scenario.adminId());
+		entityManager.flush();
+		entityManager.clear();
+
+		List<CloseAccrualSnapshot> accrualSnapshots = accrualSnapshotRepository
+				.findAllByCloseRun_IdOrderByPurchaseOrderLine_Id(closeRunId);
+		List<CloseHoldSnapshot> holdSnapshots = holdSnapshotRepository
+				.findAllByCloseRun_IdOrderByPurchaseOrderLine_Id(closeRunId);
+		assertEquals(1, accrualSnapshots.size());
+		assertEquals(scenario.orderLineId(), accrualSnapshots.getFirst().getPurchaseOrderLine().getId());
+		assertEquals(new BigDecimal("800.00"), accrualSnapshots.getFirst().getBalanceAmount());
+		assertEquals("KRW", accrualSnapshots.getFirst().getCurrency());
+		assertEquals(1, holdSnapshots.size());
+		assertEquals(MatchingStatus.HOLD_QUANTITY, holdSnapshots.getFirst().getStatus());
+		assertEquals(new BigDecimal("0.800"), holdSnapshots.getFirst().getReceivedQuantity());
+		assertEquals(new BigDecimal("1.000"), holdSnapshots.getFirst().getInvoicedQuantity());
+		assertEquals(new BigDecimal("1000.00"), holdSnapshots.getFirst().getInvoicedAmount());
+	}
+
+	@Test
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	void rollsBackSnapshotsAndCreatesOneSetWhenRetrySucceeds() {
+		SnapshotScenario scenario = createHoldScenario();
+		AtomicBoolean failFirstSuccess = new AtomicBoolean(true);
+		AtomicBoolean snapshotsCreatedBeforeFailure = new AtomicBoolean();
+		doAnswer(invocation -> {
+			Long closeRunId = (Long) invocation.callRealMethod();
+			boolean accrualCreated = accrualSnapshotRepository
+					.findAllByCloseRun_IdOrderByPurchaseOrderLine_Id(closeRunId)
+					.size() == 1;
+			boolean holdCreated = holdSnapshotRepository
+					.findAllByCloseRun_IdOrderByPurchaseOrderLine_Id(closeRunId)
+					.size() == 1;
+			snapshotsCreatedBeforeFailure.set(accrualCreated && holdCreated);
+			if (failFirstSuccess.compareAndSet(true, false)) {
+				throw new IllegalStateException("스냅샷 생성 후 실패 상황 재현");
+			}
+			return closeRunId;
+		}).when(closeSuccessRecorder).complete(any(ClosePeriod.class), any(CloseRun.class));
+
+		assertThrows(
+				IllegalStateException.class,
+				() -> closeService.closeManually(scenario.period(), scenario.adminId())
+		);
+
+		ClosePeriod openPeriod = closePeriodRepository.findByPeriod(scenario.period()).orElseThrow();
+		CloseRun failedRun = closeRunRepository
+				.findAllByClosePeriod_IdOrderByAttemptNo(openPeriod.getId())
+				.getFirst();
+		assertTrue(snapshotsCreatedBeforeFailure.get());
+		assertEquals(ClosePeriodStatus.OPEN, openPeriod.getStatus());
+		assertEquals(CloseRunStatus.FAILED, failedRun.getStatus());
+		assertEquals(0, accrualSnapshotRepository.count());
+		assertEquals(0, holdSnapshotRepository.count());
+		assertTrue(accrualSnapshotRepository
+				.findAllByCloseRun_IdOrderByPurchaseOrderLine_Id(failedRun.getId()).isEmpty());
+		assertTrue(holdSnapshotRepository
+				.findAllByCloseRun_IdOrderByPurchaseOrderLine_Id(failedRun.getId()).isEmpty());
+
+		Long successRunId = closeService.closeManually(scenario.period(), scenario.adminId());
+		Long skippedRunId = closeService.closeManually(scenario.period(), scenario.adminId());
+
+		assertEquals(1, accrualSnapshotRepository
+				.findAllByCloseRun_IdOrderByPurchaseOrderLine_Id(successRunId).size());
+		assertEquals(1, holdSnapshotRepository
+				.findAllByCloseRun_IdOrderByPurchaseOrderLine_Id(successRunId).size());
+		assertTrue(accrualSnapshotRepository
+				.findAllByCloseRun_IdOrderByPurchaseOrderLine_Id(skippedRunId).isEmpty());
+		assertTrue(holdSnapshotRepository
+				.findAllByCloseRun_IdOrderByPurchaseOrderLine_Id(skippedRunId).isEmpty());
+		assertEquals(1, accrualSnapshotRepository.count());
+		assertEquals(1, holdSnapshotRepository.count());
+	}
+
+	private SnapshotScenario createHoldScenario() {
 		String suffix = Long.toUnsignedString(System.nanoTime(), 36);
 		AppUser requester = createUser("snapshot-requester-" + suffix + "@example.com", RoleCode.REQUESTER);
 		AppUser buyer = createUser("snapshot-buyer-" + suffix + "@example.com", RoleCode.BUYER);
@@ -170,23 +270,7 @@ class CloseSnapshotServiceTest {
 		);
 
 		String period = postingDate.format(DateTimeFormatter.ofPattern("yyyyMM"));
-		Long closeRunId = closeService.closeManually(period, admin.getId());
-		entityManager.flush();
-		entityManager.clear();
-
-		List<CloseAccrualSnapshot> accrualSnapshots = accrualSnapshotRepository
-				.findAllByCloseRun_IdOrderByPurchaseOrderLine_Id(closeRunId);
-		List<CloseHoldSnapshot> holdSnapshots = holdSnapshotRepository
-				.findAllByCloseRun_IdOrderByPurchaseOrderLine_Id(closeRunId);
-		assertEquals(1, accrualSnapshots.size());
-		assertEquals(orderLine.getId(), accrualSnapshots.getFirst().getPurchaseOrderLine().getId());
-		assertEquals(new BigDecimal("800.00"), accrualSnapshots.getFirst().getBalanceAmount());
-		assertEquals("KRW", accrualSnapshots.getFirst().getCurrency());
-		assertEquals(1, holdSnapshots.size());
-		assertEquals(MatchingStatus.HOLD_QUANTITY, holdSnapshots.getFirst().getStatus());
-		assertEquals(new BigDecimal("0.800"), holdSnapshots.getFirst().getReceivedQuantity());
-		assertEquals(new BigDecimal("1.000"), holdSnapshots.getFirst().getInvoicedQuantity());
-		assertEquals(new BigDecimal("1000.00"), holdSnapshots.getFirst().getInvoicedAmount());
+		return new SnapshotScenario(admin.getId(), orderLine.getId(), period);
 	}
 
 	private AppUser createUser(String email, RoleCode roleCode) {
@@ -195,5 +279,8 @@ class CloseSnapshotServiceTest {
 		Role role = roleRepository.findByCode(roleCode).orElseThrow();
 		userRoleRepository.save(new UserRole(user, role));
 		return user;
+	}
+
+	private record SnapshotScenario(Long adminId, Long orderLineId, String period) {
 	}
 }
