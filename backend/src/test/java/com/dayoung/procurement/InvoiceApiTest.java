@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.dayoung.procurement.invoice.domain.Invoice;
+import com.dayoung.procurement.invoice.domain.InvoiceStatus;
 import com.dayoung.procurement.invoice.repository.InvoiceRepository;
 import com.dayoung.procurement.masterdata.domain.Department;
 import com.dayoung.procurement.masterdata.domain.Item;
@@ -128,6 +129,37 @@ class InvoiceApiTest {
 				.andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
 	}
 
+	@Test
+	void cancelsInvoiceAsBuyer() throws Exception {
+		TestOrder testOrder = createSentOrder();
+		entityManager.flush();
+		mockMvc.perform(post("/api/purchase-orders/{orderId}/invoices", testOrder.orderId())
+						.with(httpBasic(testOrder.buyerEmail(), PASSWORD))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(createInvoiceJson(testOrder.lineId())))
+				.andExpect(status().isCreated());
+		Invoice invoice = invoiceRepository.findByVendor_IdAndInvoiceNumber(
+				testOrder.vendorId(),
+				"INV-API-001"
+		).orElseThrow();
+
+		mockMvc.perform(post(
+						"/api/purchase-orders/{orderId}/invoices/{invoiceId}/cancel",
+						testOrder.orderId(),
+						invoice.getId()
+				)
+				.with(httpBasic(testOrder.buyerEmail(), PASSWORD))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(cancelJson()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.success").value(true));
+
+		entityManager.flush();
+		entityManager.clear();
+		assertEquals(InvoiceStatus.CANCELLED,
+				invoiceRepository.findById(invoice.getId()).orElseThrow().getStatus());
+	}
+
 	private TestOrder createSentOrder() {
 		String suffix = String.valueOf(System.nanoTime());
 		AppUser requester = createUser("invoice-api-requester-" + suffix + "@example.com", RoleCode.REQUESTER);
@@ -201,6 +233,15 @@ class InvoiceApiTest {
 				  ]
 				}
 				""".formatted(LocalDate.now(), LocalDate.now(), lineId);
+	}
+
+	private String cancelJson() {
+		return """
+				{
+				  "postingDate": "%s",
+				  "reason": "송장 API 취소 테스트"
+				}
+				""".formatted(LocalDate.now());
 	}
 
 	private record TestOrder(Long orderId, Long lineId, Long vendorId, String buyerEmail) {

@@ -11,9 +11,7 @@ import com.dayoung.procurement.purchase.exception.PurchaseOrderLineNotFoundExcep
 import com.dayoung.procurement.purchase.repository.PurchaseOrderLineRepository;
 import com.dayoung.procurement.receipt.domain.GoodsReceiptStatus;
 import com.dayoung.procurement.receipt.repository.GoodsReceiptLineRepository;
-import com.dayoung.procurement.user.domain.AppUser;
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -54,27 +52,20 @@ public class ThreeWayMatchingService {
 	}
 
 	@Transactional
-	public Long matchAndSettle(Long purchaseOrderLineId, LocalDate postingDate, AppUser createdBy) {
+	public Long matchAndSettle(Long purchaseOrderLineId) {
 		MatchResult result = evaluate(purchaseOrderLineId);
 		if (result.getStatus() == MatchingStatus.MATCHED) {
-			PurchaseOrderLine orderLine = result.getPurchaseOrderLine();
-			accrualEntryService.createForMatching(
-					orderLine,
-					result.getInvoicedAmount(),
-					orderLine.getPurchaseOrder().getCurrency(),
-					postingDate,
-					createdBy
-			);
+			accrualEntryService.createForMatching(result.getPurchaseOrderLine());
 		}
 		return result.getId();
 	}
 
 	@Transactional
-	public void rematchIfEvaluated(Long purchaseOrderLineId, LocalDate postingDate, AppUser createdBy) {
+	public void rematchIfEvaluated(Long purchaseOrderLineId) {
 		if (matchResultRepository.findByPurchaseOrderLine_Id(purchaseOrderLineId).isEmpty()) {
 			return;
 		}
-		matchAndSettle(purchaseOrderLineId, postingDate, createdBy);
+		matchAndSettle(purchaseOrderLineId);
 	}
 
 	private MatchResult evaluate(Long purchaseOrderLineId) {

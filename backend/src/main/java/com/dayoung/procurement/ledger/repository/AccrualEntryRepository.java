@@ -2,10 +2,13 @@ package com.dayoung.procurement.ledger.repository;
 
 import com.dayoung.procurement.ledger.domain.AccrualEntry;
 import com.dayoung.procurement.ledger.domain.AccrualEntryType;
+import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -13,9 +16,21 @@ public interface AccrualEntryRepository extends JpaRepository<AccrualEntry, Long
 
 	boolean existsByGoodsReceiptLine_IdAndEntryType(Long goodsReceiptLineId, AccrualEntryType entryType);
 
+	boolean existsByInvoiceLine_IdAndEntryType(Long invoiceLineId, AccrualEntryType entryType);
+
+	boolean existsByReversalOf_Id(Long accrualEntryId);
+
+	boolean existsByRepostingOf_Id(Long accrualEntryId);
+
 	List<AccrualEntry> findAllByGoodsReceiptLine_GoodsReceipt_IdOrderById(Long goodsReceiptId);
 
+	List<AccrualEntry> findAllByInvoiceLine_Invoice_IdOrderById(Long invoiceId);
+
 	List<AccrualEntry> findAllByPurchaseOrderLine_IdOrderById(Long purchaseOrderLineId);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select entry from AccrualEntry entry where entry.id = :entryId")
+	Optional<AccrualEntry> findByIdForUpdate(@Param("entryId") Long entryId);
 
 	@Query("""
 			select coalesce(sum(entry.amount), 0)

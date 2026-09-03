@@ -14,6 +14,11 @@ public interface InvoiceLineRepository extends JpaRepository<InvoiceLine, Long> 
 
 	List<InvoiceLine> findAllByPurchaseOrderLine_IdOrderById(Long purchaseOrderLineId);
 
+	List<InvoiceLine> findAllByPurchaseOrderLine_IdAndInvoice_StatusOrderById(
+			Long purchaseOrderLineId,
+			InvoiceStatus status
+	);
+
 	@Query("""
 			select coalesce(sum(line.quantity), 0)
 			from InvoiceLine line

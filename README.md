@@ -18,6 +18,8 @@
       ├─ HOLD_QUANTITY: 송장 미접수 또는 입고수량 초과
       └─ HOLD_PRICE: 안분 금액의 허용 오차 초과
   → 월 마감 상태·잔액·미해결 HOLD 스냅샷 확정
+  → 마감 전 오류: 문서 취소 + CANCEL_OFFSET
+  → 마감 후 오류: REVERSAL + 정상 금액 CORRECTION
 ```
 
 ## 주요 설계
@@ -51,7 +53,8 @@ amountTolerance = MIN(expectedAmount × 1%, 10,000원)
 - Spring Boot 4.1
 - Spring Web MVC, Spring Data JPA, Spring Security, Validation
 - MySQL 8.4
-- Flyway V1~V12, `ddl-auto=validate`
+- Flyway V1~V15, `ddl-auto=validate`
+- springdoc-openapi, Swagger UI
 - JUnit 5, Testcontainers MySQL
 - GitHub Actions
 
@@ -89,7 +92,7 @@ cd backend
 ./gradlew test
 ```
 
-2026-09-03 기준 Testcontainers MySQL 환경에서 전체 **120개 테스트가 통과**했습니다.
+Testcontainers MySQL 환경에서 서비스, API, 마이그레이션, 동시성 테스트를 실행합니다.
 
 검증 범위에는 다음 시나리오가 포함됩니다.
 
@@ -100,6 +103,9 @@ cd backend
 - 월 마감 성공·중복 실행·실패·재실행
 - 수동·자동 동시 마감 시 성공 결과 한 벌 생성
 - 역할별 API 허용·거부
+- 마감 전 입고·송장 취소와 원장 상쇄
+- 마감 후 역분개·재기표와 중복 차단
+- 상태 변경 감사 로그
 
 ## API 범위
 
@@ -113,20 +119,23 @@ cd backend
 - `POST /api/purchase-requests/{id}/purchase-order`
 - `POST /api/purchase-orders/{id}/send`
 - `POST /api/purchase-orders/{id}/goods-receipts`
+- `POST /api/purchase-orders/{id}/goods-receipts/{receiptId}/cancel`
 - `POST /api/purchase-orders/{id}/invoices`
+- `POST /api/purchase-orders/{id}/invoices/{invoiceId}/cancel`
+- `POST /api/accrual-entries/{entryId}/reverse`
+- `POST /api/accrual-entries/{reversalId}/repost`
 - `POST /api/close-periods/{period}/close`
+
+실행 후 Swagger UI는 `http://localhost:8081/swagger-ui.html`, OpenAPI JSON은 `http://localhost:8081/v3/api-docs`에서 확인할 수 있습니다.
 
 ## ADR
 
 - [ADR 0001: 구매 문서를 헤더가 아닌 라인 단위로 연결한다](docs/adr/0001-line-level-document-linkage.md)
 - [ADR 0002: 금액과 부가세를 라인별로 계산하고 대사는 송장 수량 기준으로 안분한다](docs/adr/0002-line-level-tax-and-amount-policy.md)
 - [ADR 0003: 마감 상태와 실행 이력을 분리한다](docs/adr/0003-separate-close-period-and-run.md)
+- [ADR 0004: 마감 전 문서 취소와 마감 후 원장 정정을 분리한다](docs/adr/0004-separate-cancellation-and-post-close-correction.md)
 
-## 현재 한계와 다음 범위
+## 현재 한계
 
-- 마감 전 문서 취소와 `CANCEL_OFFSET` 원장 상쇄는 아직 구현하지 않았습니다.
-- 마감 후 `REVERSAL`, 중복 역분개 차단, 정상값 재기표는 아직 구현하지 않았습니다.
-- 감사 로그와 OpenAPI/Swagger UI는 아직 구성하지 않았습니다.
+- 감사 로그 저장은 구현했지만 별도 조회 API와 관리 화면은 아직 없습니다.
 - 이미 존재하는 OPEN 기간에 동시 마감 재시도 두 건이 겹치는 경우의 잠금 제약은 [ADR 0003](docs/adr/0003-separate-close-period-and-run.md)에 기록했습니다.
-
-다음 개발 범위는 취소·역분개·재기표 흐름이며, 구현과 함께 ADR 0004를 작성합니다.

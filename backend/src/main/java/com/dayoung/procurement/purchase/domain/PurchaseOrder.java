@@ -140,6 +140,17 @@ public class PurchaseOrder {
 		this.status = fullyReceived ? PurchaseOrderStatus.RECEIVED : PurchaseOrderStatus.PARTIALLY_RECEIVED;
 	}
 
+	public void recalculateReceiptStatus(boolean hasReceipt, boolean fullyReceived) {
+		if (status != PurchaseOrderStatus.PARTIALLY_RECEIVED && status != PurchaseOrderStatus.RECEIVED) {
+			throw new InvalidPurchaseOrderStateException(status, "입고 상태를 재계산");
+		}
+		if (!hasReceipt) {
+			status = PurchaseOrderStatus.SENT;
+			return;
+		}
+		status = fullyReceived ? PurchaseOrderStatus.RECEIVED : PurchaseOrderStatus.PARTIALLY_RECEIVED;
+	}
+
 	public void requireReceivable() {
 		if (status != PurchaseOrderStatus.SENT && status != PurchaseOrderStatus.PARTIALLY_RECEIVED) {
 			throw new InvalidPurchaseOrderStateException(status, "입고");

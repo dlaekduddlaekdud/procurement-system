@@ -1,9 +1,15 @@
 package com.dayoung.procurement.invoice.application;
 
+import com.dayoung.procurement.audit.application.AuditLogService;
+import com.dayoung.procurement.audit.domain.AuditEventType;
+import com.dayoung.procurement.audit.domain.AuditTargetType;
 import com.dayoung.procurement.closing.application.ClosePeriodService;
+import com.dayoung.procurement.common.command.CancelDocumentCommand;
 import com.dayoung.procurement.invoice.domain.Invoice;
 import com.dayoung.procurement.invoice.exception.DuplicateInvoiceException;
+import com.dayoung.procurement.invoice.exception.InvoiceNotFoundException;
 import com.dayoung.procurement.invoice.repository.InvoiceRepository;
+import com.dayoung.procurement.ledger.application.AccrualEntryService;
 import com.dayoung.procurement.matching.application.ThreeWayMatchingService;
 import com.dayoung.procurement.purchase.domain.PurchaseOrder;
 import com.dayoung.procurement.purchase.domain.PurchaseOrderLine;
@@ -39,6 +45,8 @@ public class InvoiceService {
 	private final UserRoleRepository userRoleRepository;
 	private final ClosePeriodService closePeriodService;
 	private final ThreeWayMatchingService matchingService;
+	private final AccrualEntryService accrualEntryService;
+	private final AuditLogService auditLogService;
 
 	public InvoiceService(
 			InvoiceRepository invoiceRepository,
@@ -46,7 +54,9 @@ public class InvoiceService {
 			AppUserRepository appUserRepository,
 			UserRoleRepository userRoleRepository,
 			ClosePeriodService closePeriodService,
-			ThreeWayMatchingService matchingService
+			ThreeWayMatchingService matchingService,
+			AccrualEntryService accrualEntryService,
+			AuditLogService auditLogService
 	) {
 		this.invoiceRepository = invoiceRepository;
 		this.purchaseOrderRepository = purchaseOrderRepository;
@@ -54,6 +64,8 @@ public class InvoiceService {
 		this.userRoleRepository = userRoleRepository;
 		this.closePeriodService = closePeriodService;
 		this.matchingService = matchingService;
+		this.accrualEntryService = accrualEntryService;
+		this.auditLogService = auditLogService;
 	}
 
 	@Transactional
@@ -93,12 +105,38 @@ public class InvoiceService {
 			invoice.addLine(orderLine, lineCommand.quantity(), lineCommand.unitPrice());
 		}
 		Invoice savedInvoice = invoiceRepository.saveAndFlush(invoice);
-		savedInvoice.getLines().forEach(line -> matchingService.matchAndSettle(
-				line.getPurchaseOrderLine().getId(),
-				savedInvoice.getPostingDate(),
-				buyer
-		));
+		savedInvoice.getLines().forEach(line ->
+				matchingService.matchAndSettle(line.getPurchaseOrderLine().getId()));
 		return savedInvoice.getId();
+	}
+
+	@Transactional
+	public void cancel(
+			@NotNull Long orderId,
+			@NotNull Long invoiceId,
+			@NotNull Long buyerId,
+			@NotNull @Valid CancelDocumentCommand command
+	) {
+		AppUser buyer = getActiveBuyer(buyerId);
+		Invoice invoice = invoiceRepository.findByIdForUpdate(invoiceId)
+				.filter(candidate -> candidate.getPurchaseOrder().getId().equals(orderId))
+				.orElseThrow(() -> new InvoiceNotFoundException(invoiceId));
+		validateOrderAccess(invoice.getPurchaseOrder(), buyer);
+		closePeriodService.requireOpen(invoice.getPostingDate());
+		closePeriodService.requireOpen(command.postingDate());
+
+		invoice.cancel();
+		invoiceRepository.saveAndFlush(invoice);
+		accrualEntryService.createCancellationOffsetsForInvoice(invoiceId, command.postingDate(), buyer);
+		invoice.getLines().forEach(line ->
+				matchingService.rematchIfEvaluated(line.getPurchaseOrderLine().getId()));
+		auditLogService.record(
+				AuditEventType.INVOICE_CANCELLED,
+				AuditTargetType.INVOICE,
+				invoiceId,
+				buyer,
+				command.reason()
+		);
 	}
 
 	private void validateUniqueLines(Iterable<CreateInvoiceLineCommand> lines) {

@@ -1,6 +1,7 @@
 package com.dayoung.procurement.invoice.web;
 
 import com.dayoung.procurement.common.api.ApiResponse;
+import com.dayoung.procurement.common.web.CancelDocumentRequest;
 import com.dayoung.procurement.invoice.application.InvoiceService;
 import com.dayoung.procurement.security.AuthenticatedUser;
 import jakarta.validation.Valid;
@@ -34,5 +35,17 @@ public class InvoiceController {
 	) {
 		Long invoiceId = invoiceService.create(orderId, user.getUserId(), request.toCommand());
 		return ApiResponse.success(new CreatedInvoiceResponse(invoiceId));
+	}
+
+	@PostMapping("/{invoiceId}/cancel")
+	@PreAuthorize("hasRole('BUYER')")
+	public ApiResponse<Void> cancel(
+			@AuthenticationPrincipal AuthenticatedUser user,
+			@PathVariable Long orderId,
+			@PathVariable Long invoiceId,
+			@Valid @RequestBody CancelDocumentRequest request
+	) {
+		invoiceService.cancel(orderId, invoiceId, user.getUserId(), request.toCommand());
+		return ApiResponse.success(null);
 	}
 }

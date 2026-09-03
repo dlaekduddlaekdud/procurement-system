@@ -1,5 +1,8 @@
 package com.dayoung.procurement.ledger.application;
 
+import com.dayoung.procurement.invoice.domain.InvoiceLine;
+import com.dayoung.procurement.invoice.domain.InvoiceStatus;
+import com.dayoung.procurement.invoice.repository.InvoiceLineRepository;
 import com.dayoung.procurement.ledger.domain.AccrualEntry;
 import com.dayoung.procurement.ledger.domain.AccrualEntryType;
 import com.dayoung.procurement.ledger.repository.AccrualEntryRepository;
@@ -15,6 +18,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -28,13 +32,16 @@ public class AccrualEntryService {
 
 	private final GoodsReceiptRepository goodsReceiptRepository;
 	private final AccrualEntryRepository accrualEntryRepository;
+	private final InvoiceLineRepository invoiceLineRepository;
 
 	public AccrualEntryService(
 			GoodsReceiptRepository goodsReceiptRepository,
-			AccrualEntryRepository accrualEntryRepository
+			AccrualEntryRepository accrualEntryRepository,
+			InvoiceLineRepository invoiceLineRepository
 	) {
 		this.goodsReceiptRepository = goodsReceiptRepository;
 		this.accrualEntryRepository = accrualEntryRepository;
+		this.invoiceLineRepository = invoiceLineRepository;
 	}
 
 	@Transactional
@@ -70,32 +77,61 @@ public class AccrualEntryService {
 	}
 
 	@Transactional
-	public void createForMatching(
-			PurchaseOrderLine orderLine,
-			BigDecimal invoicedAmount,
-			String currency,
+	public void createForMatching(PurchaseOrderLine orderLine) {
+		List<InvoiceLine> invoiceLines = invoiceLineRepository
+				.findAllByPurchaseOrderLine_IdAndInvoice_StatusOrderById(
+						orderLine.getId(),
+						InvoiceStatus.RECEIVED
+				);
+		for (InvoiceLine invoiceLine : invoiceLines) {
+			if (accrualEntryRepository.existsByInvoiceLine_IdAndEntryType(
+					invoiceLine.getId(),
+					AccrualEntryType.INVOICE_MATCH
+			)) {
+				continue;
+			}
+			accrualEntryRepository.save(AccrualEntry.forInvoiceMatch(generateEntryNumber(), invoiceLine));
+		}
+	}
+
+	@Transactional
+	public void createCancellationOffsetsForGoodsReceipt(
+			Long goodsReceiptId,
 			LocalDate postingDate,
 			AppUser createdBy
 	) {
-		BigDecimal matchedAmount = accrualEntryRepository.sumAmountByPurchaseOrderLineIdAndEntryType(
-				orderLine.getId(),
-				AccrualEntryType.INVOICE_MATCH
-		).abs();
-		BigDecimal amountToMatch = invoicedAmount.subtract(matchedAmount);
-		if (amountToMatch.signum() <= 0) {
-			return;
-		}
-
-		AccrualEntry entry = AccrualEntry.forInvoiceMatch(
-				generateEntryNumber(),
-				orderLine,
-				amountToMatch.negate(),
-				currency,
+		createCancellationOffsets(
+				accrualEntryRepository.findAllByGoodsReceiptLine_GoodsReceipt_IdOrderById(goodsReceiptId),
 				postingDate,
-				postingDate.format(PERIOD_FORMAT),
 				createdBy
 		);
-		accrualEntryRepository.save(entry);
+	}
+
+	@Transactional
+	public void createCancellationOffsetsForInvoice(Long invoiceId, LocalDate postingDate, AppUser createdBy) {
+		createCancellationOffsets(
+				accrualEntryRepository.findAllByInvoiceLine_Invoice_IdOrderById(invoiceId),
+				postingDate,
+				createdBy
+		);
+	}
+
+	private void createCancellationOffsets(
+			List<AccrualEntry> originals,
+			LocalDate postingDate,
+			AppUser createdBy
+	) {
+		for (AccrualEntry original : originals) {
+			if (accrualEntryRepository.existsByReversalOf_Id(original.getId())) {
+				continue;
+			}
+			accrualEntryRepository.save(AccrualEntry.cancellationOffset(
+					generateEntryNumber(),
+					original,
+					postingDate,
+					createdBy
+			));
+		}
 	}
 
 	private String generateEntryNumber() {

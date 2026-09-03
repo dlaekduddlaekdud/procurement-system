@@ -1,6 +1,7 @@
 package com.dayoung.procurement.invoice.domain;
 
 import com.dayoung.procurement.masterdata.domain.Vendor;
+import com.dayoung.procurement.invoice.exception.InvalidInvoiceStateException;
 import com.dayoung.procurement.purchase.domain.PurchaseOrder;
 import com.dayoung.procurement.purchase.domain.PurchaseOrderLine;
 import com.dayoung.procurement.user.domain.AppUser;
@@ -121,6 +122,13 @@ public class Invoice {
 		taxAmount = taxAmount.add(amounts.taxAmount());
 		totalAmount = totalAmount.add(amounts.totalAmount());
 		return line;
+	}
+
+	public void cancel() {
+		if (status != InvoiceStatus.RECEIVED) {
+			throw new InvalidInvoiceStateException(status);
+		}
+		status = InvoiceStatus.CANCELLED;
 	}
 
 	public Long getId() {

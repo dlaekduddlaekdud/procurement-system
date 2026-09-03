@@ -2,6 +2,7 @@ package com.dayoung.procurement.closing.application;
 
 import com.dayoung.procurement.closing.domain.ClosePeriodStatus;
 import com.dayoung.procurement.closing.exception.ClosedPeriodException;
+import com.dayoung.procurement.closing.exception.OpenPeriodReversalNotAllowedException;
 import com.dayoung.procurement.closing.repository.ClosePeriodRepository;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -35,5 +36,15 @@ public class ClosePeriodService {
 				.ifPresent(closePeriod -> {
 					throw new ClosedPeriodException(period);
 				});
+	}
+
+	public void requireClosed(LocalDate postingDate) {
+		String period = postingDate.format(PERIOD_FORMAT);
+		boolean closed = closePeriodRepository.findByPeriodForShare(period)
+				.filter(closePeriod -> closePeriod.getStatus() == ClosePeriodStatus.CLOSED)
+				.isPresent();
+		if (!closed) {
+			throw new OpenPeriodReversalNotAllowedException(period);
+		}
 	}
 }
