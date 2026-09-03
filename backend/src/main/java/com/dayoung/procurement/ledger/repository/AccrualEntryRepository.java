@@ -3,6 +3,7 @@ package com.dayoung.procurement.ledger.repository;
 import com.dayoung.procurement.ledger.domain.AccrualEntry;
 import com.dayoung.procurement.ledger.domain.AccrualEntryType;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -26,4 +27,16 @@ public interface AccrualEntryRepository extends JpaRepository<AccrualEntry, Long
 			@Param("purchaseOrderLineId") Long purchaseOrderLineId,
 			@Param("entryType") AccrualEntryType entryType
 	);
+
+	@Query("""
+			select entry.purchaseOrderLine as purchaseOrderLine,
+			       entry.currency as currency,
+			       sum(entry.amount) as balanceAmount
+			from AccrualEntry entry
+			where entry.postingDate <= :periodEnd
+			group by entry.purchaseOrderLine, entry.currency
+			having sum(entry.amount) <> 0
+			order by entry.purchaseOrderLine.id
+			""")
+	List<AccrualBalanceView> findOutstandingBalancesThrough(@Param("periodEnd") LocalDate periodEnd);
 }

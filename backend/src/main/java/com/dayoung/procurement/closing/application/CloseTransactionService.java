@@ -19,17 +19,20 @@ public class CloseTransactionService {
 	private final CloseRunRepository closeRunRepository;
 	private final AppUserRepository appUserRepository;
 	private final CloseSuccessRecorder closeSuccessRecorder;
+	private final CloseSnapshotService closeSnapshotService;
 
 	public CloseTransactionService(
 			ClosePeriodRepository closePeriodRepository,
 			CloseRunRepository closeRunRepository,
 			AppUserRepository appUserRepository,
-			CloseSuccessRecorder closeSuccessRecorder
+			CloseSuccessRecorder closeSuccessRecorder,
+			CloseSnapshotService closeSnapshotService
 	) {
 		this.closePeriodRepository = closePeriodRepository;
 		this.closeRunRepository = closeRunRepository;
 		this.appUserRepository = appUserRepository;
 		this.closeSuccessRecorder = closeSuccessRecorder;
+		this.closeSnapshotService = closeSnapshotService;
 	}
 
 	@Transactional
@@ -50,6 +53,8 @@ public class CloseTransactionService {
 			closeRun.skip(LocalDateTime.now());
 			return closeRunRepository.save(closeRun).getId();
 		}
+		closeRunRepository.saveAndFlush(closeRun);
+		closeSnapshotService.createSnapshots(closePeriod, closeRun);
 		return closeSuccessRecorder.complete(closePeriod, closeRun);
 	}
 }
