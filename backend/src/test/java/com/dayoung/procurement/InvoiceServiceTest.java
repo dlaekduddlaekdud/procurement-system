@@ -6,6 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 
+import com.dayoung.procurement.audit.domain.AuditEventType;
+import com.dayoung.procurement.audit.domain.AuditTargetType;
+import com.dayoung.procurement.audit.repository.AuditLogRepository;
 import com.dayoung.procurement.common.command.CancelDocumentCommand;
 import com.dayoung.procurement.invoice.application.CreateInvoiceCommand;
 import com.dayoung.procurement.invoice.application.CreateInvoiceLineCommand;
@@ -118,6 +121,9 @@ class InvoiceServiceTest {
 	@Autowired
 	private UserRoleRepository userRoleRepository;
 
+	@Autowired
+	private AuditLogRepository auditLogRepository;
+
 	@Test
 	void createsInvoiceWithLineLevelTaxAndHeaderTotals() {
 		TestOrder testOrder = createOrder("invoice-amount", true);
@@ -167,7 +173,7 @@ class InvoiceServiceTest {
 				testOrder.orderId(),
 				invoiceId,
 				testOrder.buyerId(),
-				new CancelDocumentCommand(LocalDate.now())
+				new CancelDocumentCommand(LocalDate.now(), "중복 송장 취소")
 		);
 
 		Invoice invoice = invoiceRepository.findById(invoiceId).orElseThrow();
@@ -186,6 +192,11 @@ class InvoiceServiceTest {
 		assertEquals(new BigDecimal("1000.00"), accrualBalance(lineId));
 		assertEquals(MatchingStatus.HOLD_QUANTITY,
 				matchResultRepository.findByPurchaseOrderLine_Id(lineId).orElseThrow().getStatus());
+		var auditLog = auditLogRepository
+				.findAllByTargetTypeAndTargetIdOrderById(AuditTargetType.INVOICE, invoiceId)
+				.getFirst();
+		assertEquals(AuditEventType.INVOICE_CANCELLED, auditLog.getEventType());
+		assertEquals("중복 송장 취소", auditLog.getReason());
 	}
 
 	@Test

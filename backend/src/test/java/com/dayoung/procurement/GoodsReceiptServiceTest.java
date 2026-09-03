@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.dayoung.procurement.audit.domain.AuditEventType;
+import com.dayoung.procurement.audit.domain.AuditTargetType;
+import com.dayoung.procurement.audit.repository.AuditLogRepository;
 import com.dayoung.procurement.closing.domain.ClosePeriod;
 import com.dayoung.procurement.closing.exception.ClosedPeriodException;
 import com.dayoung.procurement.closing.repository.ClosePeriodRepository;
@@ -125,6 +128,9 @@ class GoodsReceiptServiceTest {
 	@Autowired
 	private UserRoleRepository userRoleRepository;
 
+	@Autowired
+	private AuditLogRepository auditLogRepository;
+
 	@Test
 	void changesOrderStatusAfterPartialAndFullReceipts() {
 		TestOrder testOrder = createSentOrder("receipt-state");
@@ -205,7 +211,7 @@ class GoodsReceiptServiceTest {
 				testOrder.orderId(),
 				receiptId,
 				testOrder.buyerId(),
-				new CancelDocumentCommand(LocalDate.now())
+				new CancelDocumentCommand(LocalDate.now(), "입고 수량 오류")
 		);
 
 		GoodsReceiptStatus status = goodsReceiptRepository.findById(receiptId).orElseThrow().getStatus();
@@ -221,6 +227,12 @@ class GoodsReceiptServiceTest {
 		assertEquals(new BigDecimal("6000.00"), entries.getFirst().getAmount());
 		assertEquals(new BigDecimal("-6000.00"), entries.getLast().getAmount());
 		assertEquals(entries.getFirst().getId(), entries.getLast().getReversalOf().getId());
+		var auditLog = auditLogRepository
+				.findAllByTargetTypeAndTargetIdOrderById(AuditTargetType.GOODS_RECEIPT, receiptId)
+				.getFirst();
+		assertEquals(AuditEventType.GOODS_RECEIPT_CANCELLED, auditLog.getEventType());
+		assertEquals(testOrder.buyerId(), auditLog.getActor().getId());
+		assertEquals("입고 수량 오류", auditLog.getReason());
 	}
 
 	@Test
@@ -240,7 +252,7 @@ class GoodsReceiptServiceTest {
 				testOrder.orderId(),
 				receiptId,
 				testOrder.buyerId(),
-				new CancelDocumentCommand(postingDate)
+				new CancelDocumentCommand(postingDate, "마감 후 취소 시도")
 		));
 
 		assertEquals(GoodsReceiptStatus.POSTED,
@@ -278,7 +290,7 @@ class GoodsReceiptServiceTest {
 				testOrder.orderId(),
 				receiptId,
 				testOrder.buyerId(),
-				new CancelDocumentCommand(LocalDate.now())
+				new CancelDocumentCommand(LocalDate.now(), "송장 연결 입고 취소 시도")
 		));
 		assertEquals(GoodsReceiptStatus.POSTED,
 				goodsReceiptRepository.findById(receiptId).orElseThrow().getStatus());

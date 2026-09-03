@@ -3,6 +3,9 @@ package com.dayoung.procurement;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.dayoung.procurement.audit.domain.AuditEventType;
+import com.dayoung.procurement.audit.domain.AuditTargetType;
+import com.dayoung.procurement.audit.repository.AuditLogRepository;
 import com.dayoung.procurement.closing.domain.ClosePeriod;
 import com.dayoung.procurement.closing.exception.OpenPeriodReversalNotAllowedException;
 import com.dayoung.procurement.closing.repository.ClosePeriodRepository;
@@ -87,6 +90,8 @@ class LedgerCorrectionServiceTest {
 	private RoleRepository roleRepository;
 	@Autowired
 	private UserRoleRepository userRoleRepository;
+	@Autowired
+	private AuditLogRepository auditLogRepository;
 
 	@Test
 	void reversesClosedEntryWithoutChangingOriginal() {
@@ -97,7 +102,7 @@ class LedgerCorrectionServiceTest {
 		Long reversalId = ledgerCorrectionService.reverse(
 				scenario.original().getId(),
 				admin.getId(),
-				new ReverseAccrualEntryCommand(LocalDate.now())
+				new ReverseAccrualEntryCommand(LocalDate.now(), "마감 후 입고 금액 오류")
 		);
 
 		List<AccrualEntry> entries = accrualEntryRepository
@@ -108,6 +113,11 @@ class LedgerCorrectionServiceTest {
 		assertEquals(new BigDecimal("-6000.00"), entries.getLast().getAmount());
 		assertEquals(scenario.original().getId(), entries.getLast().getReversalOf().getId());
 		assertEquals(reversalId, entries.getLast().getId());
+		var auditLog = auditLogRepository
+				.findAllByTargetTypeAndTargetIdOrderById(AuditTargetType.ACCRUAL_ENTRY, reversalId)
+				.getFirst();
+		assertEquals(AuditEventType.ACCRUAL_REVERSED, auditLog.getEventType());
+		assertEquals("마감 후 입고 금액 오류", auditLog.getReason());
 	}
 
 	@Test
@@ -118,7 +128,7 @@ class LedgerCorrectionServiceTest {
 		assertThrows(OpenPeriodReversalNotAllowedException.class, () -> ledgerCorrectionService.reverse(
 				scenario.original().getId(),
 				admin.getId(),
-				new ReverseAccrualEntryCommand(LocalDate.now())
+				new ReverseAccrualEntryCommand(LocalDate.now(), "열린 기간 역분개 시도")
 		));
 	}
 
@@ -127,7 +137,7 @@ class LedgerCorrectionServiceTest {
 		ReversalScenario scenario = createScenario(LocalDate.of(2002, 2, 15));
 		close(scenario.original().getPostingDate());
 		AppUser admin = createUser("duplicate-reversal-admin", RoleCode.ADMIN);
-		ReverseAccrualEntryCommand command = new ReverseAccrualEntryCommand(LocalDate.now());
+		ReverseAccrualEntryCommand command = new ReverseAccrualEntryCommand(LocalDate.now(), "중복 역분개 확인");
 		ledgerCorrectionService.reverse(scenario.original().getId(), admin.getId(), command);
 
 		assertThrows(DuplicateAccrualReversalException.class, () ->
@@ -142,7 +152,7 @@ class LedgerCorrectionServiceTest {
 		assertThrows(PurchaseRoleRequiredException.class, () -> ledgerCorrectionService.reverse(
 				scenario.original().getId(),
 				scenario.buyerId(),
-				new ReverseAccrualEntryCommand(LocalDate.now())
+				new ReverseAccrualEntryCommand(LocalDate.now(), "권한 없는 역분개")
 		));
 	}
 
@@ -154,11 +164,12 @@ class LedgerCorrectionServiceTest {
 		Long reversalId = ledgerCorrectionService.reverse(
 				scenario.original().getId(),
 				admin.getId(),
-				new ReverseAccrualEntryCommand(LocalDate.now())
+				new ReverseAccrualEntryCommand(LocalDate.now(), "재기표 전 역분개")
 		);
 		RepostAccrualEntryCommand command = new RepostAccrualEntryCommand(
 				new BigDecimal("4000.00"),
-				LocalDate.now()
+				LocalDate.now(),
+				"정상 금액 재기표"
 		);
 
 		Long correctionId = ledgerCorrectionService.repost(reversalId, admin.getId(), command);
@@ -173,6 +184,11 @@ class LedgerCorrectionServiceTest {
 		assertEquals(new BigDecimal("4000.00"), entries.getLast().getAmount());
 		assertEquals(reversalId, entries.getLast().getRepostingOf().getId());
 		assertEquals(correctionId, entries.getLast().getId());
+		var auditLog = auditLogRepository
+				.findAllByTargetTypeAndTargetIdOrderById(AuditTargetType.ACCRUAL_ENTRY, correctionId)
+				.getFirst();
+		assertEquals(AuditEventType.ACCRUAL_REPOSTED, auditLog.getEventType());
+		assertEquals("정상 금액 재기표", auditLog.getReason());
 
 		assertThrows(DuplicateAccrualRepostingException.class, () ->
 				ledgerCorrectionService.repost(reversalId, admin.getId(), command));
@@ -186,7 +202,11 @@ class LedgerCorrectionServiceTest {
 		assertThrows(InvalidAccrualRepostingTargetException.class, () -> ledgerCorrectionService.repost(
 				scenario.original().getId(),
 				admin.getId(),
-				new RepostAccrualEntryCommand(new BigDecimal("4000.00"), LocalDate.now())
+				new RepostAccrualEntryCommand(
+						new BigDecimal("4000.00"),
+						LocalDate.now(),
+						"잘못된 대상 재기표"
+				)
 		));
 	}
 

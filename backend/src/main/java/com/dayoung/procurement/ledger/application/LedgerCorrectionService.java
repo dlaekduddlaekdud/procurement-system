@@ -1,5 +1,8 @@
 package com.dayoung.procurement.ledger.application;
 
+import com.dayoung.procurement.audit.application.AuditLogService;
+import com.dayoung.procurement.audit.domain.AuditEventType;
+import com.dayoung.procurement.audit.domain.AuditTargetType;
 import com.dayoung.procurement.closing.application.ClosePeriodService;
 import com.dayoung.procurement.ledger.domain.AccrualEntry;
 import com.dayoung.procurement.ledger.domain.AccrualEntryType;
@@ -33,17 +36,20 @@ public class LedgerCorrectionService {
 	private final ClosePeriodService closePeriodService;
 	private final AppUserRepository appUserRepository;
 	private final UserRoleRepository userRoleRepository;
+	private final AuditLogService auditLogService;
 
 	public LedgerCorrectionService(
 			AccrualEntryRepository accrualEntryRepository,
 			ClosePeriodService closePeriodService,
 			AppUserRepository appUserRepository,
-			UserRoleRepository userRoleRepository
+			UserRoleRepository userRoleRepository,
+			AuditLogService auditLogService
 	) {
 		this.accrualEntryRepository = accrualEntryRepository;
 		this.closePeriodService = closePeriodService;
 		this.appUserRepository = appUserRepository;
 		this.userRoleRepository = userRoleRepository;
+		this.auditLogService = auditLogService;
 	}
 
 	@Transactional
@@ -68,7 +74,15 @@ public class LedgerCorrectionService {
 				command.postingDate(),
 				admin
 		);
-		return accrualEntryRepository.save(reversal).getId();
+		Long reversalId = accrualEntryRepository.save(reversal).getId();
+		auditLogService.record(
+				AuditEventType.ACCRUAL_REVERSED,
+				AuditTargetType.ACCRUAL_ENTRY,
+				reversalId,
+				admin,
+				command.reason()
+		);
+		return reversalId;
 	}
 
 	@Transactional
@@ -97,7 +111,15 @@ public class LedgerCorrectionService {
 				command.postingDate(),
 				admin
 		);
-		return accrualEntryRepository.save(correction).getId();
+		Long correctionId = accrualEntryRepository.save(correction).getId();
+		auditLogService.record(
+				AuditEventType.ACCRUAL_REPOSTED,
+				AuditTargetType.ACCRUAL_ENTRY,
+				correctionId,
+				admin,
+				command.reason()
+		);
+		return correctionId;
 	}
 
 	private void validateOriginalEntry(AccrualEntry entry) {

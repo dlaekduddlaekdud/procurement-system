@@ -1,5 +1,8 @@
 package com.dayoung.procurement.invoice.application;
 
+import com.dayoung.procurement.audit.application.AuditLogService;
+import com.dayoung.procurement.audit.domain.AuditEventType;
+import com.dayoung.procurement.audit.domain.AuditTargetType;
 import com.dayoung.procurement.closing.application.ClosePeriodService;
 import com.dayoung.procurement.common.command.CancelDocumentCommand;
 import com.dayoung.procurement.invoice.domain.Invoice;
@@ -43,6 +46,7 @@ public class InvoiceService {
 	private final ClosePeriodService closePeriodService;
 	private final ThreeWayMatchingService matchingService;
 	private final AccrualEntryService accrualEntryService;
+	private final AuditLogService auditLogService;
 
 	public InvoiceService(
 			InvoiceRepository invoiceRepository,
@@ -51,7 +55,8 @@ public class InvoiceService {
 			UserRoleRepository userRoleRepository,
 			ClosePeriodService closePeriodService,
 			ThreeWayMatchingService matchingService,
-			AccrualEntryService accrualEntryService
+			AccrualEntryService accrualEntryService,
+			AuditLogService auditLogService
 	) {
 		this.invoiceRepository = invoiceRepository;
 		this.purchaseOrderRepository = purchaseOrderRepository;
@@ -60,6 +65,7 @@ public class InvoiceService {
 		this.closePeriodService = closePeriodService;
 		this.matchingService = matchingService;
 		this.accrualEntryService = accrualEntryService;
+		this.auditLogService = auditLogService;
 	}
 
 	@Transactional
@@ -124,6 +130,13 @@ public class InvoiceService {
 		accrualEntryService.createCancellationOffsetsForInvoice(invoiceId, command.postingDate(), buyer);
 		invoice.getLines().forEach(line ->
 				matchingService.rematchIfEvaluated(line.getPurchaseOrderLine().getId()));
+		auditLogService.record(
+				AuditEventType.INVOICE_CANCELLED,
+				AuditTargetType.INVOICE,
+				invoiceId,
+				buyer,
+				command.reason()
+		);
 	}
 
 	private void validateUniqueLines(Iterable<CreateInvoiceLineCommand> lines) {

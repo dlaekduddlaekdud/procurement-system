@@ -1,5 +1,8 @@
 package com.dayoung.procurement.receipt.application;
 
+import com.dayoung.procurement.audit.application.AuditLogService;
+import com.dayoung.procurement.audit.domain.AuditEventType;
+import com.dayoung.procurement.audit.domain.AuditTargetType;
 import com.dayoung.procurement.closing.application.ClosePeriodService;
 import com.dayoung.procurement.common.command.CancelDocumentCommand;
 import com.dayoung.procurement.invoice.domain.InvoiceStatus;
@@ -54,6 +57,7 @@ public class GoodsReceiptService {
 	private final ClosePeriodService closePeriodService;
 	private final ThreeWayMatchingService matchingService;
 	private final InvoiceLineRepository invoiceLineRepository;
+	private final AuditLogService auditLogService;
 
 	public GoodsReceiptService(
 			PurchaseOrderRepository purchaseOrderRepository,
@@ -65,7 +69,8 @@ public class GoodsReceiptService {
 			AccrualEntryService accrualEntryService,
 			ClosePeriodService closePeriodService,
 			ThreeWayMatchingService matchingService,
-			InvoiceLineRepository invoiceLineRepository
+			InvoiceLineRepository invoiceLineRepository,
+			AuditLogService auditLogService
 	) {
 		this.purchaseOrderRepository = purchaseOrderRepository;
 		this.goodsReceiptRepository = goodsReceiptRepository;
@@ -77,6 +82,7 @@ public class GoodsReceiptService {
 		this.closePeriodService = closePeriodService;
 		this.matchingService = matchingService;
 		this.invoiceLineRepository = invoiceLineRepository;
+		this.auditLogService = auditLogService;
 	}
 
 	@Transactional
@@ -160,6 +166,13 @@ public class GoodsReceiptService {
 		recalculateOrderReceiptStatus(order);
 		receipt.getLines().forEach(line ->
 				matchingService.rematchIfEvaluated(line.getPurchaseOrderLine().getId()));
+		auditLogService.record(
+				AuditEventType.GOODS_RECEIPT_CANCELLED,
+				AuditTargetType.GOODS_RECEIPT,
+				receiptId,
+				buyer,
+				command.reason()
+		);
 	}
 
 	private void validateCancellationQuantities(GoodsReceipt receipt) {
