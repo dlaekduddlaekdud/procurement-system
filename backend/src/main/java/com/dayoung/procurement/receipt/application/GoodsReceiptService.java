@@ -1,6 +1,9 @@
 package com.dayoung.procurement.receipt.application;
 
 import com.dayoung.procurement.closing.application.ClosePeriodService;
+import com.dayoung.procurement.common.command.CancelDocumentCommand;
+import com.dayoung.procurement.invoice.domain.InvoiceStatus;
+import com.dayoung.procurement.invoice.repository.InvoiceLineRepository;
 import com.dayoung.procurement.ledger.application.AccrualEntryService;
 import com.dayoung.procurement.matching.application.ThreeWayMatchingService;
 import com.dayoung.procurement.purchase.domain.PurchaseOrder;
@@ -13,6 +16,8 @@ import com.dayoung.procurement.purchase.exception.PurchaseRoleRequiredException;
 import com.dayoung.procurement.purchase.repository.PurchaseOrderRepository;
 import com.dayoung.procurement.receipt.domain.GoodsReceipt;
 import com.dayoung.procurement.receipt.domain.GoodsReceiptStatus;
+import com.dayoung.procurement.receipt.exception.GoodsReceiptCancellationBlockedException;
+import com.dayoung.procurement.receipt.exception.GoodsReceiptNotFoundException;
 import com.dayoung.procurement.receipt.exception.PurchaseOrderQuantityExceededException;
 import com.dayoung.procurement.receipt.repository.GoodsReceiptLineRepository;
 import com.dayoung.procurement.receipt.repository.GoodsReceiptRepository;
@@ -48,6 +53,7 @@ public class GoodsReceiptService {
 	private final AccrualEntryService accrualEntryService;
 	private final ClosePeriodService closePeriodService;
 	private final ThreeWayMatchingService matchingService;
+	private final InvoiceLineRepository invoiceLineRepository;
 
 	public GoodsReceiptService(
 			PurchaseOrderRepository purchaseOrderRepository,
@@ -58,7 +64,8 @@ public class GoodsReceiptService {
 			GoodsReceiptNumberGenerator numberGenerator,
 			AccrualEntryService accrualEntryService,
 			ClosePeriodService closePeriodService,
-			ThreeWayMatchingService matchingService
+			ThreeWayMatchingService matchingService,
+			InvoiceLineRepository invoiceLineRepository
 	) {
 		this.purchaseOrderRepository = purchaseOrderRepository;
 		this.goodsReceiptRepository = goodsReceiptRepository;
@@ -69,6 +76,7 @@ public class GoodsReceiptService {
 		this.accrualEntryService = accrualEntryService;
 		this.closePeriodService = closePeriodService;
 		this.matchingService = matchingService;
+		this.invoiceLineRepository = invoiceLineRepository;
 	}
 
 	@Transactional
@@ -123,12 +131,58 @@ public class GoodsReceiptService {
 		order.applyReceiptStatus(fullyReceived);
 		Long receiptId = goodsReceiptRepository.save(receipt).getId();
 		accrualEntryService.createForGoodsReceipt(receiptId);
-		receipt.getLines().forEach(line -> matchingService.rematchIfEvaluated(
-				line.getPurchaseOrderLine().getId(),
-				receipt.getPostingDate(),
-				buyer
-		));
+		receipt.getLines().forEach(line ->
+				matchingService.rematchIfEvaluated(line.getPurchaseOrderLine().getId()));
 		return receiptId;
+	}
+
+	@Transactional
+	public void cancel(
+			@NotNull Long orderId,
+			@NotNull Long receiptId,
+			@NotNull Long buyerId,
+			@NotNull @Valid CancelDocumentCommand command
+	) {
+		AppUser buyer = getActiveBuyer(buyerId);
+		PurchaseOrder order = purchaseOrderRepository.findByIdForReceipt(orderId)
+				.orElseThrow(() -> new PurchaseOrderNotFoundException(orderId));
+		validateOrderAccess(order, buyer);
+		GoodsReceipt receipt = goodsReceiptRepository.findByIdForAccrual(receiptId)
+				.filter(candidate -> candidate.getPurchaseOrder().getId().equals(orderId))
+				.orElseThrow(() -> new GoodsReceiptNotFoundException(receiptId));
+
+		closePeriodService.requireOpen(receipt.getPostingDate());
+		closePeriodService.requireOpen(command.postingDate());
+		validateCancellationQuantities(receipt);
+		receipt.cancel();
+		goodsReceiptRepository.saveAndFlush(receipt);
+		accrualEntryService.createCancellationOffsetsForGoodsReceipt(receiptId, command.postingDate(), buyer);
+		recalculateOrderReceiptStatus(order);
+		receipt.getLines().forEach(line ->
+				matchingService.rematchIfEvaluated(line.getPurchaseOrderLine().getId()));
+	}
+
+	private void validateCancellationQuantities(GoodsReceipt receipt) {
+		for (var receiptLine : receipt.getLines()) {
+			Long orderLineId = receiptLine.getPurchaseOrderLine().getId();
+			BigDecimal remainingReceived = getPostedQuantity(orderLineId).subtract(receiptLine.getQuantity());
+			BigDecimal invoiced = invoiceLineRepository.sumQuantityByPurchaseOrderLineIdAndStatus(
+					orderLineId,
+					InvoiceStatus.RECEIVED
+			);
+			if (invoiced.compareTo(remainingReceived) > 0) {
+				throw new GoodsReceiptCancellationBlockedException(orderLineId);
+			}
+		}
+	}
+
+	private void recalculateOrderReceiptStatus(PurchaseOrder order) {
+		Map<Long, BigDecimal> quantities = order.getLines().stream()
+				.collect(Collectors.toMap(PurchaseOrderLine::getId, line -> getPostedQuantity(line.getId())));
+		boolean hasReceipt = quantities.values().stream().anyMatch(quantity -> quantity.signum() > 0);
+		boolean fullyReceived = order.getLines().stream().allMatch(line ->
+				quantities.get(line.getId()).compareTo(line.getQuantity()) == 0);
+		order.recalculateReceiptStatus(hasReceipt, fullyReceived);
 	}
 
 	private void validateUniqueLines(Iterable<CreateGoodsReceiptLineCommand> lines) {

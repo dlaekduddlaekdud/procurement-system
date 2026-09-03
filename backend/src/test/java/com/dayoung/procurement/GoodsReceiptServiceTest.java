@@ -7,6 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.dayoung.procurement.closing.domain.ClosePeriod;
 import com.dayoung.procurement.closing.exception.ClosedPeriodException;
 import com.dayoung.procurement.closing.repository.ClosePeriodRepository;
+import com.dayoung.procurement.common.command.CancelDocumentCommand;
+import com.dayoung.procurement.invoice.application.CreateInvoiceCommand;
+import com.dayoung.procurement.invoice.application.CreateInvoiceLineCommand;
+import com.dayoung.procurement.invoice.application.InvoiceService;
 import com.dayoung.procurement.masterdata.domain.Department;
 import com.dayoung.procurement.masterdata.domain.Item;
 import com.dayoung.procurement.masterdata.domain.Vendor;
@@ -34,6 +38,7 @@ import com.dayoung.procurement.receipt.application.CreateGoodsReceiptCommand;
 import com.dayoung.procurement.receipt.application.CreateGoodsReceiptLineCommand;
 import com.dayoung.procurement.receipt.application.GoodsReceiptService;
 import com.dayoung.procurement.receipt.domain.GoodsReceiptStatus;
+import com.dayoung.procurement.receipt.exception.GoodsReceiptCancellationBlockedException;
 import com.dayoung.procurement.receipt.exception.PurchaseOrderQuantityExceededException;
 import com.dayoung.procurement.receipt.repository.GoodsReceiptLineRepository;
 import com.dayoung.procurement.receipt.repository.GoodsReceiptRepository;
@@ -68,6 +73,9 @@ class GoodsReceiptServiceTest {
 
 	@Autowired
 	private GoodsReceiptService goodsReceiptService;
+
+	@Autowired
+	private InvoiceService invoiceService;
 
 	@Autowired
 	private AccrualEntryService accrualEntryService;
@@ -182,6 +190,98 @@ class GoodsReceiptServiceTest {
 		assertEquals(new BigDecimal("6.000"), getPostedQuantity(testOrder.lineId()));
 		assertEquals(receiptCount, goodsReceiptRepository.count());
 		assertEquals(accrualCount, accrualEntryRepository.count());
+	}
+
+	@Test
+	void cancelsOpenPeriodReceiptWithOffsetAndRestoresOrderState() {
+		TestOrder testOrder = createSentOrder("receipt-cancel");
+		Long receiptId = goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createCommand(testOrder.lineId(), "6.000")
+		);
+
+		goodsReceiptService.cancel(
+				testOrder.orderId(),
+				receiptId,
+				testOrder.buyerId(),
+				new CancelDocumentCommand(LocalDate.now())
+		);
+
+		GoodsReceiptStatus status = goodsReceiptRepository.findById(receiptId).orElseThrow().getStatus();
+		PurchaseOrder order = purchaseOrderRepository.findById(testOrder.orderId()).orElseThrow();
+		List<AccrualEntry> entries = accrualEntryRepository
+				.findAllByPurchaseOrderLine_IdOrderById(testOrder.lineId());
+
+		assertEquals(GoodsReceiptStatus.CANCELLED, status);
+		assertEquals(PurchaseOrderStatus.SENT, order.getStatus());
+		assertEquals(new BigDecimal("0.000"), getPostedQuantity(testOrder.lineId()));
+		assertEquals(List.of(AccrualEntryType.GR_ACCRUAL, AccrualEntryType.CANCEL_OFFSET),
+				entries.stream().map(AccrualEntry::getEntryType).toList());
+		assertEquals(new BigDecimal("6000.00"), entries.getFirst().getAmount());
+		assertEquals(new BigDecimal("-6000.00"), entries.getLast().getAmount());
+		assertEquals(entries.getFirst().getId(), entries.getLast().getReversalOf().getId());
+	}
+
+	@Test
+	void rejectsReceiptCancellationInClosedPeriodWithoutOffset() {
+		TestOrder testOrder = createSentOrder("receipt-cancel-closed");
+		LocalDate postingDate = LocalDate.of(2001, 1, 15);
+		Long receiptId = goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createCommand(testOrder.lineId(), "6.000", postingDate)
+		);
+		ClosePeriod closePeriod = new ClosePeriod(postingDate.format(PERIOD_FORMAT));
+		closePeriod.close(LocalDateTime.now());
+		closePeriodRepository.save(closePeriod);
+
+		assertThrows(ClosedPeriodException.class, () -> goodsReceiptService.cancel(
+				testOrder.orderId(),
+				receiptId,
+				testOrder.buyerId(),
+				new CancelDocumentCommand(postingDate)
+		));
+
+		assertEquals(GoodsReceiptStatus.POSTED,
+				goodsReceiptRepository.findById(receiptId).orElseThrow().getStatus());
+		assertEquals(List.of(AccrualEntryType.GR_ACCRUAL), accrualEntryRepository
+				.findAllByPurchaseOrderLine_IdOrderById(testOrder.lineId()).stream()
+				.map(AccrualEntry::getEntryType)
+				.toList());
+	}
+
+	@Test
+	void rejectsReceiptCancellationWhenActiveInvoiceWouldExceedRemainingReceipt() {
+		TestOrder testOrder = createSentOrder("receipt-cancel-invoiced");
+		Long receiptId = goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createCommand(testOrder.lineId(), "6.000")
+		);
+		invoiceService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				new CreateInvoiceCommand(
+						"INV-RECEIPT-CANCEL-" + System.nanoTime(),
+						LocalDate.now(),
+						LocalDate.now(),
+						List.of(new CreateInvoiceLineCommand(
+								testOrder.lineId(),
+								new BigDecimal("6.000"),
+								new BigDecimal("1000.00")
+						))
+				)
+		);
+
+		assertThrows(GoodsReceiptCancellationBlockedException.class, () -> goodsReceiptService.cancel(
+				testOrder.orderId(),
+				receiptId,
+				testOrder.buyerId(),
+				new CancelDocumentCommand(LocalDate.now())
+		));
+		assertEquals(GoodsReceiptStatus.POSTED,
+				goodsReceiptRepository.findById(receiptId).orElseThrow().getStatus());
 	}
 
 	@Test

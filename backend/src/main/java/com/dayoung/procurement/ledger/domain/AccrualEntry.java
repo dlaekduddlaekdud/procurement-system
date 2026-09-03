@@ -1,5 +1,6 @@
 package com.dayoung.procurement.ledger.domain;
 
+import com.dayoung.procurement.invoice.domain.InvoiceLine;
 import com.dayoung.procurement.purchase.domain.PurchaseOrderLine;
 import com.dayoung.procurement.receipt.domain.GoodsReceiptLine;
 import com.dayoung.procurement.user.domain.AppUser;
@@ -17,10 +18,13 @@ import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 @Entity
 @Table(name = "accrual_entry")
 public class AccrualEntry {
+
+	private static final DateTimeFormatter PERIOD_FORMAT = DateTimeFormatter.ofPattern("yyyyMM");
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -40,6 +44,10 @@ public class AccrualEntry {
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "goods_receipt_line_id")
 	private GoodsReceiptLine goodsReceiptLine;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "invoice_line_id")
+	private InvoiceLine invoiceLine;
 
 	@Column(nullable = false, precision = 19, scale = 2)
 	private BigDecimal amount;
@@ -90,22 +98,37 @@ public class AccrualEntry {
 
 	public static AccrualEntry forInvoiceMatch(
 			String entryNumber,
-			PurchaseOrderLine purchaseOrderLine,
-			BigDecimal amount,
-			String currency,
-			LocalDate postingDate,
-			String period,
-			AppUser createdBy
+			InvoiceLine invoiceLine
 	) {
 		AccrualEntry entry = new AccrualEntry();
 		entry.entryNumber = entryNumber;
 		entry.entryType = AccrualEntryType.INVOICE_MATCH;
-		entry.purchaseOrderLine = purchaseOrderLine;
-		entry.amount = amount;
-		entry.currency = currency;
+		entry.purchaseOrderLine = invoiceLine.getPurchaseOrderLine();
+		entry.invoiceLine = invoiceLine;
+		entry.amount = invoiceLine.getSupplyAmount().negate();
+		entry.currency = invoiceLine.getInvoice().getCurrency();
+		entry.postingDate = invoiceLine.getInvoice().getPostingDate();
+		entry.period = entry.postingDate.format(PERIOD_FORMAT);
+		entry.createdBy = invoiceLine.getInvoice().getReceivedBy();
+		return entry;
+	}
+
+	public static AccrualEntry cancellationOffset(
+			String entryNumber,
+			AccrualEntry original,
+			LocalDate postingDate,
+			AppUser createdBy
+	) {
+		AccrualEntry entry = new AccrualEntry();
+		entry.entryNumber = entryNumber;
+		entry.entryType = AccrualEntryType.CANCEL_OFFSET;
+		entry.purchaseOrderLine = original.purchaseOrderLine;
+		entry.amount = original.amount.negate();
+		entry.currency = original.currency;
 		entry.postingDate = postingDate;
-		entry.period = period;
+		entry.period = postingDate.format(PERIOD_FORMAT);
 		entry.createdBy = createdBy;
+		entry.reversalOf = original;
 		return entry;
 	}
 
@@ -127,6 +150,10 @@ public class AccrualEntry {
 
 	public GoodsReceiptLine getGoodsReceiptLine() {
 		return goodsReceiptLine;
+	}
+
+	public InvoiceLine getInvoiceLine() {
+		return invoiceLine;
 	}
 
 	public BigDecimal getAmount() {

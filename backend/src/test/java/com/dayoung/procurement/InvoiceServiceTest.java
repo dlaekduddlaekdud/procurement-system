@@ -3,15 +3,16 @@ package com.dayoung.procurement;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 
+import com.dayoung.procurement.common.command.CancelDocumentCommand;
 import com.dayoung.procurement.invoice.application.CreateInvoiceCommand;
 import com.dayoung.procurement.invoice.application.CreateInvoiceLineCommand;
 import com.dayoung.procurement.invoice.application.InvoiceService;
 import com.dayoung.procurement.invoice.domain.Invoice;
 import com.dayoung.procurement.invoice.domain.InvoiceLine;
+import com.dayoung.procurement.invoice.domain.InvoiceStatus;
 import com.dayoung.procurement.invoice.exception.DuplicateInvoiceException;
 import com.dayoung.procurement.invoice.repository.InvoiceLineRepository;
 import com.dayoung.procurement.invoice.repository.InvoiceRepository;
@@ -148,6 +149,46 @@ class InvoiceServiceTest {
 	}
 
 	@Test
+	void cancelsMatchedInvoiceAndOffsetsOnlyItsSettlement() {
+		TestOrder testOrder = createOrder("invoice-cancel", true);
+		Long lineId = testOrder.lineIds().getFirst();
+		goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createReceiptCommand(lineId, "1.000")
+		);
+		Long invoiceId = invoiceService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createSingleLineInvoiceCommand("INV-CANCEL-001", lineId, "1.000")
+		);
+
+		invoiceService.cancel(
+				testOrder.orderId(),
+				invoiceId,
+				testOrder.buyerId(),
+				new CancelDocumentCommand(LocalDate.now())
+		);
+
+		Invoice invoice = invoiceRepository.findById(invoiceId).orElseThrow();
+		List<AccrualEntry> entries = accrualEntryRepository.findAllByPurchaseOrderLine_IdOrderById(lineId);
+		assertEquals(InvoiceStatus.CANCELLED, invoice.getStatus());
+		assertEquals(
+				List.of(
+						AccrualEntryType.GR_ACCRUAL,
+						AccrualEntryType.INVOICE_MATCH,
+						AccrualEntryType.CANCEL_OFFSET
+				),
+				entries.stream().map(AccrualEntry::getEntryType).toList()
+		);
+		assertEquals(new BigDecimal("1000.00"), entries.getLast().getAmount());
+		assertEquals(entries.get(1).getId(), entries.getLast().getReversalOf().getId());
+		assertEquals(new BigDecimal("1000.00"), accrualBalance(lineId));
+		assertEquals(MatchingStatus.HOLD_QUANTITY,
+				matchResultRepository.findByPurchaseOrderLine_Id(lineId).orElseThrow().getStatus());
+	}
+
+	@Test
 	void rejectsInvoiceForCreatedPurchaseOrder() {
 		TestOrder testOrder = createOrder("invoice-created", false);
 
@@ -274,8 +315,7 @@ class InvoiceServiceTest {
 				testOrder.buyerId(),
 				createSingleLineInvoiceCommand("INV-MATCH-PARTIAL-002", lineId, "0.010")
 		);
-		AppUser buyer = appUserRepository.findById(testOrder.buyerId()).orElseThrow();
-		threeWayMatchingService.matchAndSettle(lineId, LocalDate.now(), buyer);
+		threeWayMatchingService.matchAndSettle(lineId);
 
 		List<AccrualEntry> matchingEntries = accrualEntryRepository
 				.findAllByPurchaseOrderLine_IdOrderById(lineId)
@@ -369,8 +409,7 @@ class InvoiceServiceTest {
 		assertEquals(AccrualEntryType.INVOICE_MATCH, entries.getLast().getEntryType());
 		assertEquals(new BigDecimal("-1000.00"), entries.getLast().getAmount());
 
-		AppUser buyer = appUserRepository.findById(testOrder.buyerId()).orElseThrow();
-		threeWayMatchingService.matchAndSettle(lineId, LocalDate.now(), buyer);
+		threeWayMatchingService.matchAndSettle(lineId);
 		assertEquals(2, accrualEntryRepository.findAllByPurchaseOrderLine_IdOrderById(lineId).size());
 	}
 
@@ -397,11 +436,7 @@ class InvoiceServiceTest {
 					.count();
 			matchingChangesCreated.set(resultCreated && settlementCount == 1);
 			throw new IllegalStateException("대사 완료 후 실패 상황 재현");
-		}).when(threeWayMatchingService).matchAndSettle(
-				eq(lineId),
-				any(LocalDate.class),
-				any(AppUser.class)
-		);
+		}).when(threeWayMatchingService).matchAndSettle(eq(lineId));
 
 		assertThrows(
 				IllegalStateException.class,

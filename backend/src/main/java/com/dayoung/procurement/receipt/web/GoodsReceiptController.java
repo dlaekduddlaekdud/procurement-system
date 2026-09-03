@@ -1,6 +1,7 @@
 package com.dayoung.procurement.receipt.web;
 
 import com.dayoung.procurement.common.api.ApiResponse;
+import com.dayoung.procurement.common.web.CancelDocumentRequest;
 import com.dayoung.procurement.receipt.application.GoodsReceiptService;
 import com.dayoung.procurement.security.AuthenticatedUser;
 import jakarta.validation.Valid;
@@ -34,5 +35,17 @@ public class GoodsReceiptController {
 	) {
 		Long receiptId = goodsReceiptService.create(orderId, user.getUserId(), request.toCommand());
 		return ApiResponse.success(new CreatedGoodsReceiptResponse(receiptId));
+	}
+
+	@PostMapping("/{receiptId}/cancel")
+	@PreAuthorize("hasRole('BUYER')")
+	public ApiResponse<Void> cancel(
+			@AuthenticationPrincipal AuthenticatedUser user,
+			@PathVariable Long orderId,
+			@PathVariable Long receiptId,
+			@Valid @RequestBody CancelDocumentRequest request
+	) {
+		goodsReceiptService.cancel(orderId, receiptId, user.getUserId(), request.toCommand());
+		return ApiResponse.success(null);
 	}
 }

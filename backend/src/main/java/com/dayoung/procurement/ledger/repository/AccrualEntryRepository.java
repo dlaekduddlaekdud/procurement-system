@@ -13,7 +13,13 @@ public interface AccrualEntryRepository extends JpaRepository<AccrualEntry, Long
 
 	boolean existsByGoodsReceiptLine_IdAndEntryType(Long goodsReceiptLineId, AccrualEntryType entryType);
 
+	boolean existsByInvoiceLine_IdAndEntryType(Long invoiceLineId, AccrualEntryType entryType);
+
+	boolean existsByReversalOf_Id(Long accrualEntryId);
+
 	List<AccrualEntry> findAllByGoodsReceiptLine_GoodsReceipt_IdOrderById(Long goodsReceiptId);
+
+	List<AccrualEntry> findAllByInvoiceLine_Invoice_IdOrderById(Long invoiceId);
 
 	List<AccrualEntry> findAllByPurchaseOrderLine_IdOrderById(Long purchaseOrderLineId);
 

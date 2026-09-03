@@ -3,6 +3,7 @@ package com.dayoung.procurement.receipt.domain;
 import com.dayoung.procurement.masterdata.domain.Warehouse;
 import com.dayoung.procurement.purchase.domain.PurchaseOrder;
 import com.dayoung.procurement.purchase.domain.PurchaseOrderLine;
+import com.dayoung.procurement.receipt.exception.InvalidGoodsReceiptStateException;
 import com.dayoung.procurement.user.domain.AppUser;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -94,6 +95,13 @@ public class GoodsReceipt {
 		GoodsReceiptLine line = new GoodsReceiptLine(this, purchaseOrderLine, lines.size() + 1, quantity);
 		lines.add(line);
 		return line;
+	}
+
+	public void cancel() {
+		if (status != GoodsReceiptStatus.POSTED) {
+			throw new InvalidGoodsReceiptStateException(status);
+		}
+		status = GoodsReceiptStatus.CANCELLED;
 	}
 
 	public Long getId() {

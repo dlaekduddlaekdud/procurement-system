@@ -2,6 +2,8 @@ package com.dayoung.procurement.common.api;
 
 import com.dayoung.procurement.closing.exception.ClosedPeriodException;
 import com.dayoung.procurement.invoice.exception.DuplicateInvoiceException;
+import com.dayoung.procurement.invoice.exception.InvalidInvoiceStateException;
+import com.dayoung.procurement.invoice.exception.InvoiceNotFoundException;
 import com.dayoung.procurement.purchase.exception.InactivePurchaseUserException;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseOrderStateException;
 import com.dayoung.procurement.purchase.exception.InvalidPurchaseRequestStateException;
@@ -18,6 +20,7 @@ import com.dayoung.procurement.purchase.exception.PurchaseVendorNotFoundExceptio
 import com.dayoung.procurement.purchase.exception.PurchaseWarehouseNotFoundException;
 import com.dayoung.procurement.purchase.exception.SelfApprovalNotAllowedException;
 import com.dayoung.procurement.receipt.exception.GoodsReceiptNotFoundException;
+import com.dayoung.procurement.receipt.exception.GoodsReceiptCancellationBlockedException;
 import com.dayoung.procurement.receipt.exception.InvalidGoodsReceiptStateException;
 import com.dayoung.procurement.receipt.exception.PurchaseOrderQuantityExceededException;
 import jakarta.validation.ConstraintViolationException;
@@ -40,6 +43,11 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(DuplicateInvoiceException.class)
 	public ResponseEntity<ApiResponse<Void>> handleDuplicateInvoice(DuplicateInvoiceException exception) {
 		return error(HttpStatus.CONFLICT, "DUPLICATE_INVOICE", exception.getMessage());
+	}
+
+	@ExceptionHandler(InvoiceNotFoundException.class)
+	public ResponseEntity<ApiResponse<Void>> handleInvoiceNotFound(InvoiceNotFoundException exception) {
+		return error(HttpStatus.NOT_FOUND, "INVOICE_NOT_FOUND", exception.getMessage());
 	}
 
 	@ExceptionHandler(GoodsReceiptNotFoundException.class)
@@ -129,6 +137,18 @@ public class GlobalExceptionHandler {
 			InvalidGoodsReceiptStateException exception
 	) {
 		return error(HttpStatus.CONFLICT, "INVALID_GOODS_RECEIPT_STATE", exception.getMessage());
+	}
+
+	@ExceptionHandler(InvalidInvoiceStateException.class)
+	public ResponseEntity<ApiResponse<Void>> handleInvalidInvoiceState(InvalidInvoiceStateException exception) {
+		return error(HttpStatus.CONFLICT, "INVALID_INVOICE_STATE", exception.getMessage());
+	}
+
+	@ExceptionHandler(GoodsReceiptCancellationBlockedException.class)
+	public ResponseEntity<ApiResponse<Void>> handleGoodsReceiptCancellationBlocked(
+			GoodsReceiptCancellationBlockedException exception
+	) {
+		return error(HttpStatus.CONFLICT, "GOODS_RECEIPT_CANCELLATION_BLOCKED", exception.getMessage());
 	}
 
 	@ExceptionHandler(InvalidPurchaseRequestStateException.class)
