@@ -114,6 +114,7 @@ public class ThreeWayMatchingService {
 						purchaseOrderLineId,
 						InvoiceStatus.RECEIVED
 				)),
+				orderLine.getUnitPrice(),
 				amount(orderLine.getSupplyAmount()),
 				amount(invoiceLineRepository.sumSupplyAmountByPurchaseOrderLineIdAndStatus(
 						purchaseOrderLineId,

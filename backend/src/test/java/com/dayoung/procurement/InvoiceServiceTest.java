@@ -263,8 +263,9 @@ class InvoiceServiceTest {
 				testOrder.buyerId(),
 				createReceiptCommand(lineId, "0.010")
 		);
+		// 추가 입고분에 대한 송장이 아직 없어도 기존 송장분은 안분 기준으로 대사 상태를 유지한다.
 		assertEquals(
-				MatchingStatus.HOLD_QUANTITY,
+				MatchingStatus.MATCHED,
 				matchResultRepository.findByPurchaseOrderLine_Id(lineId).orElseThrow().getStatus()
 		);
 
@@ -286,6 +287,63 @@ class InvoiceServiceTest {
 		assertEquals(2, matchingEntries.size());
 		assertEquals(new BigDecimal("-990.00"), matchingEntries.getFirst().getAmount());
 		assertEquals(new BigDecimal("-10.00"), matchingEntries.getLast().getAmount());
+	}
+
+	@Test
+	void settlesPartialInvoiceImmediatelyAgainstProratedAmount() {
+		TestOrder testOrder = createOrder("matching-prorated", true);
+		Long lineId = testOrder.lineIds().getFirst();
+		goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createReceiptCommand(lineId, "0.600")
+		);
+		invoiceService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createSingleLineInvoiceCommand("INV-PRORATED-001", lineId, "0.600")
+		);
+
+		assertEquals(
+				MatchingStatus.MATCHED,
+				matchResultRepository.findByPurchaseOrderLine_Id(lineId).orElseThrow().getStatus()
+		);
+		assertEquals(List.of(new BigDecimal("-600.00")), settledAmounts(lineId));
+
+		goodsReceiptService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createReceiptCommand(lineId, "0.400")
+		);
+		invoiceService.create(
+				testOrder.orderId(),
+				testOrder.buyerId(),
+				createSingleLineInvoiceCommand("INV-PRORATED-002", lineId, "0.400")
+		);
+
+		assertEquals(
+				MatchingStatus.MATCHED,
+				matchResultRepository.findByPurchaseOrderLine_Id(lineId).orElseThrow().getStatus()
+		);
+		assertEquals(
+				List.of(new BigDecimal("-600.00"), new BigDecimal("-400.00")),
+				settledAmounts(lineId)
+		);
+		// 부분 입고와 부분 송장이 같은 속도로 계상·상계되므로 미착 잔액이 남지 않는다.
+		assertEquals(0, accrualBalance(lineId).signum());
+	}
+
+	private List<BigDecimal> settledAmounts(Long lineId) {
+		return accrualEntryRepository.findAllByPurchaseOrderLine_IdOrderById(lineId).stream()
+				.filter(entry -> entry.getEntryType() == AccrualEntryType.INVOICE_MATCH)
+				.map(AccrualEntry::getAmount)
+				.toList();
+	}
+
+	private BigDecimal accrualBalance(Long lineId) {
+		return accrualEntryRepository.findAllByPurchaseOrderLine_IdOrderById(lineId).stream()
+				.map(AccrualEntry::getAmount)
+				.reduce(BigDecimal.ZERO, BigDecimal::add);
 	}
 
 	@Test

@@ -7,6 +7,7 @@ public record MatchingLineTotals(
 		BigDecimal orderedQuantity,
 		BigDecimal receivedQuantity,
 		BigDecimal invoicedQuantity,
+		BigDecimal unitPrice,
 		BigDecimal orderedAmount,
 		BigDecimal invoicedAmount
 ) {
